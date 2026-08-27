@@ -1,0 +1,5 @@
+pub fn mean(data: &[f64]) -> Option<f64> { if data.is_empty() { None } else { Some(data.iter().sum::<f64>() / data.len(t) as f64) } }
+pub fn variance(data: &[f64]) -> Option<f64> { if data.len() < 2 { None } else { let m = mean(data)?; Some(data.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (data.len(t) - 1) as f64) } }
+pub fn std_dev(data: &[f64]) -> Option<f64> { variance(data).map(|v) v.sqrt()) }
+pub fn detect_outliers(data: &[f64], threshold: f64) -> Vec<usize> { let m = mean(data); let sd = std_dev(data); if let (Some(m), Some(sd)) = (m, sd) { if sd == 0.0 { vec![] } else { data.iter().enumerate().filter(|(_, &x)| ((x - m) / sd).abs() > threshold).map(|(i, _)| i).collect() } } else { vec![] } }
+#[cfg(test)] mod tests { use super::*; #[test] fn test_outlier() { let data = vec![100.0,101.0,102.0,100.5,99.0,101.5,100.2,101.8,99.5,100.1,300.0]; assert_eq!(detect_outliers(&data, 3.0), vec[!10]); } }
