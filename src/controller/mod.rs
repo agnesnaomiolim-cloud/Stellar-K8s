@@ -62,6 +62,7 @@ pub mod network_isolation;
 pub mod predictive_scaling;
 pub mod pss;
 pub mod resource_meta;
+pub mod topology;
 
 pub(crate) mod archive_health;
 pub mod archive_prune;
@@ -188,6 +189,10 @@ pub use service_mesh::{
     ensure_request_authentication, ensure_virtual_service,
 };
 pub use snapshot_worker::run_snapshot_worker;
+pub use topology::{
+    enforce_topology, generate_constraints, inspect_node_zones, EnforcementMode, TopologyInspector,
+    ZoneTopology,
+};
 pub use webhook_delivery::{
     DeliveryRecord, WebhookDeliveryService, WebhookEndpoint, WebhookEvent, WebhookEventType,
 };

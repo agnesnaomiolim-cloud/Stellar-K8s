@@ -215,7 +215,5 @@ members = ["wasm-plugins"]
 
 [profile.release.package.stellar-wasm-cache]
 opt-level = "z"
-lto = true
 codegen-units = 1
-panic = "abort"
 strip = true
