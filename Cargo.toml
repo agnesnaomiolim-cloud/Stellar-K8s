@@ -211,11 +211,12 @@ path = "src/bin/stellar-fork-detector.rs"
 required-features = ["rest-api", "metrics"]
 
 [workspace]
-members = ["wasm-plugins"]
+members = ["wasm-plugins", "contracts/oracle-aggregator"]
 
+# Per-package profile overrides may not specify `lto`, `panic`, or `rpath`
+# (see https://doc.rust-lang.org/cargo/reference/profiles.html). The release
+# wasm build for stellar-wasm-cache is still tuned via the allowed keys.
 [profile.release.package.stellar-wasm-cache]
 opt-level = "z"
-lto = true
 codegen-units = 1
-panic = "abort"
 strip = true

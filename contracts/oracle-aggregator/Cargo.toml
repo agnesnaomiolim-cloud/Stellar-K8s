@@ -1,0 +1,20 @@
+[package]
+name = "oracle-aggregator"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Decentralized oracle aggregator with medianizer and outlier trimming"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { version = "22", features = ["alloc"] }
+
+[dev-dependencies]
+soroban-sdk = { version = "22", features = ["testutils"] }
+proptest = "1.5"
+# soroban-env-host testutils require ed25519-dalek's 2.x API; pin exactly so
+# the resolver selects 2.x instead of the API-incompatible 3.x.
+ed25519-dalek = "=2.2.0"
