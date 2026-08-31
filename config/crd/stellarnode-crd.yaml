@@ -316,6 +316,29 @@ spec:
                     default: 300
                     format: int64
                     type: integer
+
+              storageSnapshot:
+                description: Automated storage snapshot configuration
+                nullable: true
+                properties:
+                  enabled:
+                    type: boolean
+                  schedule:
+                    type: string
+                  retention:
+                    type: integer
+                type: object
+              cloudBackup:
+                description: Cloud backup configuration for automated cloud backups
+                nullable: true
+                properties:
+                  enabled:
+                    type: boolean
+                  provider:
+                    type: string
+                  bucket:
+                    type: string
+                type: object
                     minimum: 0.0
                 type: object
                     type: integer
