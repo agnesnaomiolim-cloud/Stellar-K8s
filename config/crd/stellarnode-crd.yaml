@@ -317,6 +317,7 @@ spec:
                     format: uint64
                     minimum: 0.0
                     type: integer
+                    type: integer
                   consensusHealthThreshold:
                     default: 0.95
                     format: double
