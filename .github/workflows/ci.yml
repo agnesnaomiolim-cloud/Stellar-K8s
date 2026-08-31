@@ -230,6 +230,28 @@ jobs:
           kubectl apply --dry-run=server -f examples/soroban-rpc.yaml
           kubectl apply --dry-run=server -f examples/dr-setup.yaml
 
+  promql-query-aggregator:
+    name: PromQL Query Aggregator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-promql-query-aggregator"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsasl2-dev libcurl4-openssl-dev
+
+      - name: Run PromQL aggregator tests
+        run: cargo test --all-features
+
   security-audit:
     name: Security Audit
     if: needs.changes.outputs.deps == 'true'
