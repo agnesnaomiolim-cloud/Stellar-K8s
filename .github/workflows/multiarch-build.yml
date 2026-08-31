@@ -62,7 +62,7 @@ jobs:
           load: true
           tags: stellar-k8s-test:${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
           cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          cache-to: ${{ github.event_name == 'push' && format('type=gha,mode=max,scope={0}', matrix.platform) || '' }}
           build-args: |
             BUILDPLATFORM=linux/amd64
             TARGETPLATFORM=${{ matrix.platform }}
