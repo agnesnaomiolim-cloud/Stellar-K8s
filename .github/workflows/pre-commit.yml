@@ -18,7 +18,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfml, clippy
+          components: rustfmt, clippy
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
@@ -26,16 +26,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.x'
+          python-version: '3x'
 
       - name: Install pre-commit
         run: pip install pre-commit
 
       - name: Run pre-commit
         run: |
-          if [[ $ {{ github.event_name }} == "pull_request" ]; then
-            BASE_SHA="$ {{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="$ {{ github.event.pull_request.head.sha }}"
+          if [[ "${{github.event_name}}" == "pull_request" ]; then
+            BASE_SHA="${{github.event.pull_request.base.sha}}"
+            HEAD_SHA="${{github.event.pull_request.head.sha}}"
             git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
             pre-commit run --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA" --show-diff-on-failure
           else
