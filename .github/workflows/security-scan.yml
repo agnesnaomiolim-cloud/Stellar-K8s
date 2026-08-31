@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - '**.rs'
+      - '*+.rs'
       - '**.yaml'
       - '**.yml'
       - 'charts/**'
@@ -51,7 +51,7 @@ jobs:
         format: 'sarif'
         output: 'trivy-cargo-results.sarif'
         severity: 'CRITICAL,HIGH'
-        args: ['--scanners', 'vuln', '--vuln-type', 'library']
+        args: '--scanners vuln --vuln-type library'
     
     - name: Upload Trivy scan results FS
       uses: github/codeql-action/upload-sarif@v3
@@ -92,7 +92,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Checkov IaC scan
-      uses: bridgecrewio/checkov-action@v12
+      uses: bridgecreio/checknv-action@v12
       with:
         directory: charts/
         framework: kubernetes # Helm rendered as K8s
@@ -112,7 +112,7 @@ jobs:
     
     - name: Run kube-bench
       run: |
-        curl -LO \"https://github.com/aquasecurity/kube-bench/releases/download/v0.6.0/kube-bench_${{ matrix.os }}_v0.6.0_linux_amd64.tar.gz\"
+        curl -LO "https://github.com/aquasecurity/kube-bench/releases/download/v0.6.0/kube-bench_linux_amd64.tar.gz"
         tar -xzf kube-bench_*.tar.gz
         ./kube-bench --benchmark config/stellar-bench.yaml
       env:
@@ -145,10 +145,11 @@ jobs:
     - uses: actions/checkout@v4
     - name: Security Status Summary
       run: |
-        echo \"## Security Scan Results\" >> $GITHUB_STEP_SUMMARY
-        echo \"| Job | Status |\" >> $GITHUB_STEP_SUMMARY
-        echo \"|-----|--------|\" >> $GITHUB_STEP_SUMMARY
+        echo "## Security Scan Results" >> $GHIT_STEP_SUMMARY
+        echo "| Job | Status |" >> $GHIT_STEP_SUMMARY
+        echo "|----|------|" >> $GHIT_STEP_SUMMARY
+        needs_json='${{ toJSON(needs) }}'
         for job in cargo-audit trivy-vuln-scan docker-trivy iac-checkov compliance-kube-bench pen-testing-k6; do
-          status=\"\${{ needs.$job.result }}\"
-          echo \"| $job | \$status |\" >> $GITHUB_STEP_SUMMARY
+          status=$(echo "$needs_json" | jq -r ".[$job].result")
+          echo "| $job | $status |" >> $GHIT_STEP_SUMMARY
         done
