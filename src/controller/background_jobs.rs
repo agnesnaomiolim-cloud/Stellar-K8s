@@ -72,6 +72,14 @@ pub enum JobKind {
     DrDrill,
     /// Forensic snapshot capture.
     ForensicSnapshot,
+    /// Automated storage snapshot aligned with ledger sequence markers.
+    StorageSnapshot,
+    /// Cloud backup controller lifecycle (EBS/PD/local).
+    CloudBackup,
+    /// Snapshot retention pruning sweep.
+    SnapshotPrune,
+    /// Node restoration from a validated storage snapshot.
+    SnapshotRestore,
     /// Blue/green deployment rollout.
     BlueGreenRollout,
     /// Cross-cluster health check.
@@ -303,6 +311,10 @@ impl JobRegistry {
                         JobKind::CveScan => "cve_scan",
                         JobKind::DrDrill => "dr_drill",
                         JobKind::ForensicSnapshot => "forensic_snapshot",
+                        JobKind::StorageSnapshot => "storage_snapshot",
+                        JobKind::CloudBackup => "cloud_backup",
+                        JobKind::SnapshotPrune => "snapshot_prune",
+                        JobKind::SnapshotRestore => "snapshot_restore",
                         JobKind::BlueGreenRollout => "blue_green_rollout",
                         JobKind::CrossClusterCheck => "cross_cluster_check",
                         JobKind::WebhookDelivery => "webhook_delivery",
