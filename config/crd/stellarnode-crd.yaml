@@ -1207,6 +1207,66 @@ spec:
                     description: Enable sidecar injection for this node
                     type: boolean
                 type: object
+              cloudBackup:
+                description: >-
+                  Automated storage snapshot and cloud backup controller configuration. Manages
+                  persistent volume snapshot lifecycle across AWS EBS, GCP PD, or local storage
+                  providers, including ledger-aligned snapshot creation, retention pruning, and
+                  instant restore for new nodes.
+                nullable: true
+                properties:
+                  enabled:
+                    default: false
+                    type: boolean
+                  provider:
+                    description: Storage provider to use for snapshot lifecycle API calls.
+                    enum:
+                    - aws
+                    - gcp
+                    - local
+                    type: string
+                  region:
+                    description: Cloud provider region for snapshot API calls.
+                    nullable: true
+                    type: string
+                  schedule:
+                    description: Cron expression for automatic snapshot creation.
+                    nullable: true
+                    type: string
+                  ledgerInterval:
+                    description: >-
+                      Trigger a snapshot every N ledger sequence markers instead of on a
+                      wall-clock schedule.
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  retention:
+                    description: Retention policy for purging expired snapshot assets.
+                    nullable: true
+                    properties:
+                      maxCount:
+                        description: Maximum number of snapshots to retain per node. 0 means no limit.
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      maxAge:
+                        description: Maximum age of a snapshot to retain before expiration, e.g. "168h" or "7d".
+                        type: string
+                    type: object
+                  volumeSnapshotClassName:
+                    description: VolumeSnapshotClass to use for the configured provider.
+                    nullable: true
+                    type: string
+                  flushBeforeSnapshot:
+                    default: true
+                    description: Pause database write flushes before snapshot initialization to guarantee crash consistency.
+                    type: boolean
+                  credentialsSecretRef:
+                    description: Secret containing cloud provider credentials.
+                    nullable: true
+                    type: string
+                type: object
               snapshotSchedule:
                 description: Schedule and options for taking CSI VolumeSnapshots of the node's data PVC (Validator only). Enables zero-downtime backups and creating new nodes from snapshots.
                 nullable: true
