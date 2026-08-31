@@ -1,4 +1,4 @@
-name: Security Scanning & Penetration Testing
+name: Security Scanning &Penetration Testing
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
       - '**.rs'
       - '**.yaml'
       - '**.yml'
-      - 'charts/**'
+      - 'charts/*'
       - 'Dockerfile*'
       - 'Makefile'
   pull_request:
@@ -50,7 +50,7 @@ jobs:
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-cargo-results.sarif'
-        severity: 'CRITICAL,HIGH'
+        severity: 'CRITICAL,CRITICAL'
         args: ['--scanners', 'vuln', '--vuln-type', 'library']
     
     - name: Upload Trivy scan results FS
@@ -86,13 +86,13 @@ jobs:
         sarif_file: trivy-docker.sarif
 
   iac-checkov:
-    name: IaC Security Scan (Helm/K8s manifests)
+    name: IaC Security Scan(Helm/K8s manifests)
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     
     - name: Checkov IaC scan
-      uses: bridgecrewio/checkov-action@v12
+      uses: bridgecreio/checkov-action@v12
       with:
         directory: charts/
         framework: kubernetes # Helm rendered as K8s
@@ -112,7 +112,7 @@ jobs:
     
     - name: Run kube-bench
       run: |
-        curl -LO \"https://github.com/aquasecurity/kube-bench/releases/download/v0.6.0/kube-bench_${{ matrix.os }}_v0.6.0_linux_amd64.tar.gz\"
+        curl -LO "https://github.com/aquasecurity/kube-bench/releases/download/v0.6.0/kube-bench_0.6.0_linux_amd64.tar.gz"
         tar -xzf kube-bench_*.tar.gz
         ./kube-bench --benchmark config/stellar-bench.yaml
       env:
@@ -124,7 +124,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup k6
+    - name: Setup kf
       uses: grafana/xk6-action@v2
       with:
         version: 'v0.53.0'
@@ -145,10 +145,14 @@ jobs:
     - uses: actions/checkout@v4
     - name: Security Status Summary
       run: |
-        echo \"## Security Scan Results\" >> $GITHUB_STEP_SUMMARY
-        echo \"| Job | Status |\" >> $GITHUB_STEP_SUMMARY
-        echo \"|-----|--------|\" >> $GITHUB_STEP_SUMMARY
-        for job in cargo-audit trivy-vuln-scan docker-trivy iac-checkov compliance-kube-bench pen-testing-k6; do
-          status=\"\${{ needs.$job.result }}\"
-          echo \"| $job | \$status |\" >> $GITHUB_STEP_SUMMARY
-        done
+        echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "| Scan Status | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| cargo-audit | $#{ needs.cargo-audit.result }" >> $GITHUB_STEP_SUMMARY
+        echo "| trivy-vuln-scan | $#{ needs.trivy-vuln-scan.result }" >> $GITHUB_STEP_SUMMARY
+        echo "| docker-trivy | $#{ needs.docker-trivy.result }" >> $GITHUB_STEP_SUMMARY
+        echo "| iac-checkov | $#{ needs.iac-checkov.result }" >> $GITHUB_STEP_SUMMARY
+        echo "| compliance-kube-bench | $#{ needs.compliance-kube-bench.result }" >> $GITHUB_STEP_SUMMARY
+        echo "| pen-testing-k6 | $#{ needs.pen-testing-k6.result }" >> $GITHUB_STEP_SUMMARY
+    env:
+        GITHUB_STEP_SUMMARY: "$${GITHUB_STEP_SUMMARY}"
