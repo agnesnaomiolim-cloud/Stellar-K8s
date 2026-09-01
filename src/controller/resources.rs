@@ -994,7 +994,7 @@ fn build_service(node: &StellarNode, enable_mtls: bool) -> Service {
                 target_port,
                 ..Default::default()
             }]
-        },
+        }
     };
 
     Service {

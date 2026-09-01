@@ -88,6 +88,7 @@ helm install stellar-operator stellar-k8s/stellar-operator \
   --create-namespace
 ```
 
+
 ### Install the Operator via OLM
 
 If you are installing on a cluster with the Operator Lifecycle Manager (e.g. OpenShift), refer to the [OLM Deployment Guide](docs/deploy-olm.md).

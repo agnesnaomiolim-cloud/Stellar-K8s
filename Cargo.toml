@@ -212,4 +212,3 @@ required-features = ["rest-api", "metrics"]
 
 [workspace]
 members = ["wasm-plugins", "contracts/oracle-aggregator"]
-
