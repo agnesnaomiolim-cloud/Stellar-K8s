@@ -1086,6 +1086,9 @@ pub struct AutoscalingConfig {
     /// Gas-consumption-driven autoscaling configuration. Only valid for SorobanRPC nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gas_autoscaling: Option<GasAutoscalingConfig>,
+    /// Pending-request-queue-depth autoscaling. Only valid for SorobanRPC nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_autoscaling: Option<QueueAutoscalingConfig>,
 }
 
 /// eBPF-based proactive failure detection configuration
@@ -2857,5 +2860,101 @@ pub struct GasAutoscalingConfig {
 
     /// Polling interval in seconds (default: 6, matching average ledger close time).
     #[serde(default = "default_poll_interval_seconds")]
+    pub poll_interval_seconds: u32,
+}
+
+fn default_queue_enabled() -> bool {
+    false
+}
+
+fn default_queue_min_replicas() -> u32 {
+    1
+}
+
+fn default_queue_max_replicas() -> u32 {
+    10
+}
+
+fn default_target_pending_per_replica() -> u64 {
+    100
+}
+
+fn default_queue_metric_name() -> String {
+    "soroban_rpc_pending_requests".to_string()
+}
+
+fn default_scale_up_cooldown() -> String {
+    "0s".to_string()
+}
+
+fn default_scale_down_cooldown() -> String {
+    "60s".to_string()
+}
+
+fn default_stabilization_window_seconds() -> u32 {
+    300
+}
+
+fn default_queue_poll_interval_seconds() -> u32 {
+    2
+}
+
+/// Pending-queue-depth-driven autoscaling for Soroban RPC nodes.
+///
+/// Unlike CPU/memory HPA, this scales the Soroban RPC Deployment directly from
+/// the node's pending request queue depth, so burst traffic triggers a scale-up
+/// in the next poll cycle (seconds) instead of waiting for utilization metrics
+/// to accumulate. Scale-down is gated by a stabilization window to prevent pod
+/// thrashing.
+///
+/// Only valid when spec.nodeType == SorobanRPC.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueAutoscalingConfig {
+    /// Enable queue-depth autoscaling.
+    #[serde(default = "default_queue_enabled")]
+    pub enabled: bool,
+
+    /// Minimum replica count. Must be >= 1.
+    #[serde(default = "default_queue_min_replicas")]
+    pub min_replicas: u32,
+
+    /// Maximum replica count. Must be >= min_replicas.
+    #[serde(default = "default_queue_max_replicas")]
+    pub max_replicas: u32,
+
+    /// Target number of pending requests each replica is expected to absorb.
+    /// Desired replicas = ceil(pending_queue / target), computed in integer
+    /// arithmetic (no floating-point drift).
+    #[serde(default = "default_target_pending_per_replica")]
+    pub target_pending_per_replica: u64,
+
+    /// Name of the Prometheus gauge exposed by the node that reports the
+    /// current pending request queue length.
+    #[serde(default = "default_queue_metric_name")]
+    pub metric_name: String,
+
+    /// Optional metrics endpoint to poll. Defaults to the node's
+    /// `http://<service>.<namespace>.svc.cluster.local:8000/metrics`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric_url: Option<String>,
+
+    /// Cooldown after a scale-up event (e.g. "0s", "15s"). Defaults to "0s"
+    /// so load bursts are absorbed immediately.
+    #[serde(default = "default_scale_up_cooldown")]
+    pub scale_up_cooldown: String,
+
+    /// Cooldown after a scale-down event (e.g. "60s", "5m").
+    #[serde(default = "default_scale_down_cooldown")]
+    pub scale_down_cooldown: String,
+
+    /// Scale-down stabilization window in seconds. The operator only scales
+    /// down after the desired replica count has stayed below the current count
+    /// for the entire window, preventing rapid pod thrashing on transient dips.
+    #[serde(default = "default_stabilization_window_seconds")]
+    pub stabilization_window_seconds: u32,
+
+    /// Polling interval in seconds for reading the pending queue gauge.
+    #[serde(default = "default_queue_poll_interval_seconds")]
     pub poll_interval_seconds: u32,
 }

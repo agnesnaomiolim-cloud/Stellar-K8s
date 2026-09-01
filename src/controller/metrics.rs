@@ -67,6 +67,14 @@ pub static HORIZON_TPS: Lazy<Family<NodeLabels, Gauge<i64, AtomicI64>>> =
 pub static ACTIVE_CONNECTIONS: Lazy<Family<NodeLabels, Gauge<i64, AtomicI64>>> =
     Lazy::new(Family::default);
 
+/// Gauge tracking the pending Soroban RPC request queue depth per node.
+///
+/// Fed by the queue autoscaler's collector (see [`crate::controller::autoscaler`])
+/// and consumed by the operator's custom autoscaling loop to scale the Soroban
+/// RPC Deployment directly from burst load.
+pub static PENDING_RPC_QUEUE: Lazy<Family<NodeLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
 /// Gauge tracking archive integrity status (1 = healthy, 0 = corrupted)
 pub static ARCHIVE_INTEGRITY_STATUS: Lazy<Family<NodeLabels, Gauge<i64, AtomicI64>>> =
     Lazy::new(Family::default);
@@ -321,6 +329,11 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
         "stellar_node_active_connections",
         "Number of active peer connections",
         ACTIVE_CONNECTIONS.clone(),
+    );
+    registry.register(
+        "stellar_node_pending_rpc_queue",
+        "Current pending Soroban RPC request queue depth",
+        PENDING_RPC_QUEUE.clone(),
     );
     registry.register(
         "stellar_archive_ledger_lag",

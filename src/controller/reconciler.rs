@@ -1774,6 +1774,18 @@ pub(crate) fn apply_stellar_node(
             }
         }
 
+        // 6.5b. Pending-queue custom autoscaling (Soroban RPC only).
+        // Drives the Deployment replica count directly from the node's pending
+        // request queue so burst traffic scales within one poll cycle. This is
+        // a sibling of the gas autoscaler; the two may coexist (each patches a
+        // different knob: Deployment replicas vs HPA minReplicas).
+        if !ctx.dry_run && node.spec.node_type == NodeType::SorobanRpc {
+            crate::controller::autoscaler::ensure_queue_autoscaler_running(
+                client.clone(),
+                &node,
+            );
+        }
+
         // 6a. CSI VolumeSnapshot schedule (Validator only)
         if node.spec.node_type == NodeType::Validator {
             if let Some(ref snapshot_config) = node.spec.snapshot_schedule {

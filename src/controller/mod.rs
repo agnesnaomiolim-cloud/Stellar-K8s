@@ -48,6 +48,7 @@
 //! - Cleans up associated resources (Services, ConfigMaps, etc.)
 //! - Removes finalizer only after successful cleanup
 
+pub mod autoscaler;
 pub mod benchmark;
 pub mod blue_green;
 pub mod canary;
@@ -57,6 +58,7 @@ pub mod gas_autoscaling;
 pub mod horizon_scaler;
 pub mod jurisdiction;
 pub mod label_propagation;
+pub mod leader;
 pub mod maintenance;
 pub mod network_isolation;
 pub mod predictive_scaling;

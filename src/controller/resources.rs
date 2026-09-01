@@ -3347,6 +3347,37 @@ fn build_hpa(node: &StellarNode) -> Result<HorizontalPodAutoscaler> {
                 ..Default::default()
             });
         }
+        if metric_name == "pending_rpc_queue" {
+            // Exposed by the operator's queue autoscaler collector as
+            // `stellar_node_pending_rpc_queue`; lets a Kubernetes HPA co-drive
+            // scale on the same queue-depth signal the operator loop uses.
+            metrics.push(MetricSpec {
+                type_: "Object".to_string(),
+                object: Some(ObjectMetricSource {
+                    described_object: CrossVersionObjectReference {
+                        api_version: Some("stellar.org/v1alpha1".to_string()),
+                        kind: "StellarNode".to_string(),
+                        name: node.name_any(),
+                    },
+                    metric: MetricIdentifier {
+                        name: "stellar_node_pending_rpc_queue".to_string(),
+                        selector: None,
+                    },
+                    target: MetricTarget {
+                        type_: "Value".to_string(),
+                        value: Some(Quantity(
+                            autoscaling
+                                .queue_autoscaling
+                                .as_ref()
+                                .map(|q| q.target_pending_per_replica.to_string())
+                                .unwrap_or_else(|| "100".to_string()),
+                        )),
+                        ..Default::default()
+                    },
+                }),
+                ..Default::default()
+            });
+        }
     }
 
     let behavior = autoscaling

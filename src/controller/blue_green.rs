@@ -34,8 +34,12 @@
 
 use crate::crd::StellarNode;
 use crate::error::Result;
+use anyhow::anyhow;
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::api::{Api, Patch, PatchParams};
+use k8s_openapi::api::coordination::v1::{Lease, LeaseSpec};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+use k8s_openapi::chrono::{Duration as ChronoDuration, Utc};
+use kube::api::{Api, ObjectMeta, Patch, PatchParams};
 use kube::Client;
 use kube::ResourceExt;
 use serde_json::json;
@@ -218,6 +222,94 @@ pub async fn wait_for_green_ready(
     }
 }
 
+/// Acquire a distributed lock for blue/green deployment using a Kubernetes Lease.
+/// This ensures only one operator replica can perform the traffic switch at a time.
+async fn acquire_blue_green_lease(client: &Client, node: &StellarNode, timeout: Duration) -> Result<()> {
+    let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
+    let node_name = node.name_any();
+    let lease_name = format!("{node_name}-blue-green-lock");
+    let holder = std::env::var("POD_NAME").unwrap_or_else(|_| format!("unknown-{}", std::process::id()));
+    let api: Api<Lease> = Api::namespaced(client.clone(), &namespace);
+    let start = std::time::Instant::now();
+    let lease_seconds = 15;
+
+    loop {
+        if start.elapsed() > timeout {
+            return Err(anyhow!("Timed out acquiring blue/green lease {}", lease_name));
+        }
+
+        match api.get(&lease_name).await {
+            Ok(mut lease) => {
+                let can_acquire = match &lease.spec {
+                    Some(spec) => {
+                        let is_holder = spec.holder_identity.as_deref() == Some(holder.as_str());
+                        let expired = {
+                            let renew = spec.renewal_time.as_ref().map(|t| t.0).unwrap_or(Utc::now());
+                            let duration = ChronoDuration::seconds(spec.lease_duration_seconds.unwrap_or(10) as i64);
+                            Utc::now() - renew > duration
+                        };
+                        is_holder || expired
+                    }
+                    None => true,
+                };
+
+                if can_acquire {
+                    let transitions = lease.spec.as_ref().and_then(|s| s.lease_transitions).unwrap_or(0) + 1;
+                    lease.spec = Some(LeaseSpec {
+                        holder_identity: Some(holder.clone()),
+                        lease_duration_seconds: Some(lease_seconds),
+                        acquire_time: Some(Time(Utc::now())),
+                        renewal_time: Some(Time(Utc::now())),
+                        lease_transitions: Some(transitions),
+                    });
+                    match api.replace(&lease_name, &Default::default(), &lease).await {
+                        Ok(_) => return Ok(()),
+                        Err(e) => {
+                            warn!("Failed to take lease {}: {}. Retrying...", lease_name, e);
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                        }
+                    }
+                } else {
+                    // Held by someone else, wait
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+            Err(kube::Error::Api(ae)) if ae.code == 404 => {
+                let lease = Lease {
+                    metadata: ObjectMeta {
+                        name: Some(lease_name.clone()),
+                        namespace: Some(namespace.clone()),
+                        ..Default::default()
+                    },
+                    spec: Some(LeaseSpec {
+                        holder_identity: Some(holder.clone()),
+                        lease_duration_seconds: Some(lease_seconds),
+                        acquire_time: Some(Time(Utc::now())),
+                        renewal_time: Some(Time(Utc::now())),
+                        lease_transitions: Some(0),
+                    }),
+                };
+                api.create(&Default::default(), &lease).await?;
+                return Ok(());
+            }
+            Err(e) => {
+                warn!("Error acquiring blue/green lease {}: {}. Retrying...", lease_name, e);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
+
+/// Release the distributed lock for blue/green deployment.
+async fn release_blue_green_lease(client: &Client, node: &StellarNode) -> Result<()> {
+    let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
+    let node_name = node.name_any();
+    let lease_name = format!("{node_name}-blue-green-lock");
+    let api: Api<Lease> = Api::namespaced(client.clone(), &namespace);
+    api.delete(&lease_name, &Default::default()).await.ok();
+    Ok(())
+}
+
 /// Switch traffic from Blue to Green at the Service level
 ///
 /// # Arguments
@@ -231,47 +323,59 @@ pub async fn wait_for_green_ready(
 pub async fn switch_traffic_to_green(client: &Client, node: &StellarNode) -> Result<bool> {
     use k8s_openapi::api::core::v1::Service;
 
-    let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
-    let node_name = node.name_any();
+    // Acquire distributed lock to prevent concurrent traffic switches
+    acquire_blue_green_lease(client, node, Duration::from_secs(10)).await?;
 
-    let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
+    let result = async {
+        let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
+        let node_name = node.name_any();
 
-    // Get the service
-    match api.get(&node_name).await {
-        Ok(mut service) => {
-            // Update service selector to point to Green deployment
-            if let Some(spec) = &mut service.spec {
-                if let Some(selector) = &mut spec.selector {
-                    selector.insert("deployment-color".to_string(), "green".to_string());
-                }
-            }
+        let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
 
-            // Patch the service
-            let patch = Patch::Merge(json!({
-                "spec": {
-                    "selector": {
-                        "deployment-color": "green"
+        // Get the service
+        match api.get(&node_name).await {
+            Ok(mut service) => {
+                // Update service selector to point to Green deployment
+                if let Some(spec) = &mut service.spec {
+                    if let Some(selector) = &mut spec.selector {
+                        selector.insert("deployment-color".to_string(), "green".to_string());
                     }
                 }
-            }));
 
-            api.patch(&node_name, &PatchParams::default(), &patch)
-                .await?;
+                // Patch the service
+                let patch = Patch::Merge(json!({
+                    "spec": {
+                        "selector": {
+                            "deployment-color": "green"
+                        }
+                    }
+                }));
 
-            info!(
-                "Successfully switched traffic to Green deployment for {}/{}",
-                namespace, node_name
-            );
-            Ok(true)
+                api.patch(&node_name, &PatchParams::default(), &patch)
+                    .await?;
+
+                info!(
+                    "Successfully switched traffic to Green deployment for {}/{}",
+                    namespace, node_name
+                );
+                Ok(true)
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to get service {}/{} for traffic switch: {}",
+                    namespace, node_name, e
+                );
+                Ok(false)
+            }
         }
-        Err(e) => {
-            warn!(
-                "Failed to get service {}/{} for traffic switch: {}",
-                namespace, node_name, e
-            );
-            Ok(false)
-        }
+    }.await;
+
+    // Release the lock
+    if let Err(e) = release_blue_green_lease(client, node).await {
+        warn!("Failed to release blue/green lease: {}", e);
     }
+
+    result
 }
 
 /// Delete the old Blue deployment after successful switch
@@ -352,29 +456,41 @@ pub async fn run_smoke_tests(
 pub async fn rollback_to_blue(client: &Client, node: &StellarNode) -> Result<()> {
     use k8s_openapi::api::core::v1::Service;
 
-    let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
-    let node_name = node.name_any();
+    // Acquire distributed lock to prevent concurrent rollbacks
+    acquire_blue_green_lease(client, node, Duration::from_secs(10)).await?;
 
-    let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
+    let result = async {
+        let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
+        let node_name = node.name_any();
 
-    // Switch traffic back to Blue
-    let patch = Patch::Merge(json!({
-        "spec": {
-            "selector": {
-                "deployment-color": "blue"
+        let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
+
+        // Switch traffic back to Blue
+        let patch = Patch::Merge(json!({
+            "spec": {
+                "selector": {
+                    "deployment-color": "blue"
+                }
             }
-        }
-    }));
+        }));
 
-    api.patch(&node_name, &PatchParams::default(), &patch)
-        .await?;
+        api.patch(&node_name, &PatchParams::default(), &patch)
+            .await?;
 
-    warn!(
-        "Rolled back traffic to Blue deployment for {}/{}",
-        namespace, node_name
-    );
+        warn!(
+            "Rolled back traffic to Blue deployment for {}/{}",
+            namespace, node_name
+        );
 
-    Ok(())
+        Ok(())
+    }.await;
+
+    // Release the lock
+    if let Err(e) = release_blue_green_lease(client, node).await {
+        warn!("Failed to release blue/green lease: {}", e);
+    }
+
+    result
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use super::types::{
     GasAutoscalingConfig, GlobalDiscoveryConfig, HistoryMode, HorizonConfig, IngressConfig,
     LabelPropagationConfig, LoadBalancerConfig, LogShipperConfig, ManagedDatabaseConfig,
     NetworkPolicyConfig, NodeType, OciSnapshotConfig, PlacementConfig, PodAntiAffinityStrength,
-    ProbeConfig, ResourceRequirements, RestoreFromSnapshotConfig, RetentionPolicy, RolloutStrategy,
+    ProbeConfig, QueueAutoscalingConfig, ResourceRequirements, RestoreFromSnapshotConfig, RetentionPolicy, RolloutStrategy,
     SnapshotScheduleConfig, SorobanConfig, StellarNetwork, StorageConfig, SyncStateScalingConfig,
     ValidatorConfig, VpaConfig,
 };
@@ -757,6 +757,9 @@ impl StellarNodeSpec {
                     if let Some(ref gas) = autoscaling.gas_autoscaling {
                         validate_gas_autoscaling(gas, &mut errors);
                     }
+                    if let Some(ref queue) = autoscaling.queue_autoscaling {
+                        validate_queue_autoscaling(queue, &mut errors);
+                    }
                 }
                 if let Some(ingress) = &self.ingress {
                     validate_ingress(ingress, &mut errors);
@@ -857,6 +860,40 @@ fn validate_gas_autoscaling(gas: &GasAutoscalingConfig, errors: &mut Vec<SpecVal
             "spec.autoscaling.gasAutoscaling.scaleUpThreshold",
             "gasAutoscaling.scaleUpThreshold must be greater than scaleDownThreshold",
             "Set spec.autoscaling.gasAutoscaling.scaleUpThreshold to a value strictly greater than scaleDownThreshold.",
+        ));
+    }
+}
+
+fn validate_queue_autoscaling(queue: &QueueAutoscalingConfig, errors: &mut Vec<SpecValidationError>) {
+    if !queue.enabled {
+        return;
+    }
+    if queue.min_replicas < 1 {
+        errors.push(SpecValidationError::new(
+            "spec.autoscaling.queueAutoscaling.minReplicas",
+            "queueAutoscaling.minReplicas must be at least 1",
+            "Set spec.autoscaling.queueAutoscaling.minReplicas to 1 or greater.",
+        ));
+    }
+    if queue.max_replicas < queue.min_replicas {
+        errors.push(SpecValidationError::new(
+            "spec.autoscaling.queueAutoscaling.maxReplicas",
+            "queueAutoscaling.maxReplicas must be >= minReplicas",
+            "Set spec.autoscaling.queueAutoscaling.maxReplicas to be greater than or equal to minReplicas.",
+        ));
+    }
+    if queue.target_pending_per_replica == 0 {
+        errors.push(SpecValidationError::new(
+            "spec.autoscaling.queueAutoscaling.targetPendingPerReplica",
+            "queueAutoscaling.targetPendingPerReplica must be greater than 0",
+            "Set spec.autoscaling.queueAutoscaling.targetPendingPerReplica to a positive value.",
+        ));
+    }
+    if queue.stabilization_window_seconds == 0 {
+        errors.push(SpecValidationError::new(
+            "spec.autoscaling.queueAutoscaling.stabilizationWindowSeconds",
+            "queueAutoscaling.stabilizationWindowSeconds must be greater than 0",
+            "Set spec.autoscaling.queueAutoscaling.stabilizationWindowSeconds to a positive value.",
         ));
     }
 }
