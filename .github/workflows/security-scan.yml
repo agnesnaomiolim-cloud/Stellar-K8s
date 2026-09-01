@@ -112,7 +112,7 @@ jobs:
     
     - name: Run kube-bench
       run: |
-        curl -LO \"https://github.com/aquasecurity/kube-bench/releases/download/v0.6.0/kube-bench_${{ matrix.os }}_v0.6.0_linux_amd64.tar.gz\"
+        curl -LO "https://github.com/aquasecurity/kube-bench/releases/download/v0.6.0/kube-bench_0.6.0_linux_amd64.tar.gz"
         tar -xzf kube-bench_*.tar.gz
         ./kube-bench --benchmark config/stellar-bench.yaml
       env:
@@ -125,14 +125,14 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Setup k6
-      uses: grafana/xk6-action@v2
+      uses: grafana/k6-action@v0.3.1
       with:
         version: 'v0.53.0'
     
     - name: Run k6 penetration test scenarios
       run: |
         mkdir -p benchmarks/security/
-        k6 run benchmarks/k6/security-pen-test.js
+        k6 run benchmarks/k6/security-pen.js
       env:
         K6_OUT: xk6-cloud # Optional cloud reporting
 
