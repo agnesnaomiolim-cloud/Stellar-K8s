@@ -211,4 +211,4 @@ path = "src/bin/stellar-fork-detector.rs"
 required-features = ["rest-api", "metrics"]
 
 [workspace]
-members = ["wasm-plugins", "contracts/oracle-aggregator"]
+

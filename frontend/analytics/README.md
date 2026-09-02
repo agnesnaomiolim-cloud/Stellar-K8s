@@ -54,6 +54,14 @@ Node colors indicate health: green is synced, amber is degraded, and red is fall
 ```bash
 npm test
 npm run build
+npm run matrix:perf
 ```
 
-The model tests exercise both snapshot and message ingestion. The browser performance target is validated with the mock harness and browser devtools or a production preview build; the renderer avoids per-edge/per-node React elements and limits device pixel ratio to reduce GPU pressure.
+The model tests exercise both snapshot and message ingestion. The performance harnesses validate the issue's 10,000-cell requirement and produce the profiling evidence in [PROFILING.md](./PROFILING.md):
+
+```bash
+npm run build && npm run matrix:browser:perf            # fps, long tasks, heap in headless Chromium
+npm run build && npm run matrix:browser:perf -- --video # + interactive navigation screencast
+```
+
+`matrix:perf` fails if the mock topology yields fewer than 10,000 interconnect cells. The browser harness records the actual WebGL renderer string; numbers captured on GPU-less machines (SwiftShader rasterization) are environment-bound and are labeled as such. The renderer avoids per-edge/per-node React elements and limits device pixel ratio to reduce GPU pressure.

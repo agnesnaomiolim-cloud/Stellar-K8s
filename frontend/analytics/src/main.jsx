@@ -1,7 +1,9 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import TopologyScene from './TopologyScene.jsx';
+import QuorumMatrixCanvas from '../../components/webgl/QuorumMatrixCanvas.jsx';
 import { createStreamState, ingest, materialize, statusForNode } from './graphModel.js';
+import { buildQuorumMatrix, emptyMatrix, matrixStats } from '../matrix/quorumMatrixModel.js';
 import './styles.css';
 
 const EMPTY_GRAPH = materialize(createStreamState());
@@ -23,12 +25,17 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [paused, setPaused] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [view, setView] = useState('graph');
+  const [matrix, setMatrix] = useState(emptyMatrix());
+  const [hoverCell, setHoverCell] = useState(null);
   const streamStateRef = useRef(createStreamState());
   const renderFrameRef = useRef(null);
 
   useEffect(() => {
     streamStateRef.current = createStreamState();
     setGraph(EMPTY_GRAPH);
+    setMatrix(emptyMatrix());
+    setHoverCell(null);
     setSelected(null);
     setConnection('connecting');
     let socket;
@@ -38,7 +45,9 @@ function App() {
       renderFrameRef.current = requestAnimationFrame(() => {
         renderFrameRef.current = null;
         if (disposed) return;
-        setGraph(materialize(streamStateRef.current));
+        const nextGraph = materialize(streamStateRef.current);
+        setGraph(nextGraph);
+        setMatrix(buildQuorumMatrix(nextGraph));
         setLastUpdate(new Date());
       });
     };
@@ -79,6 +88,8 @@ function App() {
     };
   }, [graph.nodes]);
 
+  const matrixSummary = useMemo(() => (matrix.size ? matrixStats(matrix) : null), [matrix]);
+
   const selectNode = useCallback((node) => setSelected(node), []);
   const sourceLabel = source === 'mock' ? 'Mock Kafka stream' : source === 'kafka' ? 'Kafka WebSocket bridge' : 'Operator WebSocket';
 
@@ -99,6 +110,10 @@ function App() {
               <option value="mock">Mock Kafka stream</option>
             </select>
           </label>
+          <div className="view-toggle" role="tablist" aria-label="View mode">
+            <button type="button" role="tab" aria-selected={view === 'graph'} className={view === 'graph' ? 'active' : ''} onClick={() => setView('graph')}>3D graph</button>
+            <button type="button" role="tab" aria-selected={view === 'matrix'} className={view === 'matrix' ? 'active' : ''} onClick={() => setView('matrix')}>Quorum matrix</button>
+          </div>
           <button className="tool-button" type="button" onClick={() => setPaused((value) => !value)}>
             {paused ? 'Resume motion' : 'Pause motion'}
           </button>
@@ -122,17 +137,33 @@ function App() {
             </div>
             <span className="muted">Live graph</span>
           </div>
-          <TopologyScene graph={graph} onSelect={selectNode} selectedId={selected?.id} paused={paused} />
-          <div className="legend" aria-label="Node health legend">
-            <Legend color="green" label="Synced" />
-            <Legend color="amber" label="Degraded" />
-            <Legend color="red" label="Falling behind" />
-          </div>
+          {view === 'matrix'
+            ? <QuorumMatrixCanvas matrix={matrix} onHoverCell={setHoverCell} />
+            : <TopologyScene graph={graph} onSelect={selectNode} selectedId={selected?.id} paused={paused} />}
+          {view === 'matrix'
+            ? (
+              <div className="legend" aria-label="Matrix legend">
+                <Legend color="green" label="Agreeing" />
+                <Legend color="amber" label="Confirming" />
+                <Legend color="blue" label="Lagging" />
+                <Legend color="red" label="Diverged" />
+                <span className="muted">{hoverCell ? `row ${hoverCell.sourceIndex} → col ${hoverCell.targetIndex}` : `${matrixSummary?.cells.toLocaleString() ?? 0} interconnect cells`}</span>
+              </div>
+            )
+            : (
+              <div className="legend" aria-label="Node health legend">
+                <Legend color="green" label="Synced" />
+                <Legend color="amber" label="Degraded" />
+                <Legend color="red" label="Falling behind" />
+              </div>
+            )}
         </div>
 
         <aside className="inspector" aria-live="polite">
-          <span className="eyebrow">NODE INSPECTOR</span>
-          {selected ? <NodeInspector node={selected} /> : <EmptyInspector />}
+          <span className="eyebrow">{view === 'matrix' ? 'CELL INSPECTOR' : 'NODE INSPECTOR'}</span>
+          {view === 'matrix'
+            ? <CellInspector cell={hoverCell} matrix={matrix} summary={matrixSummary} />
+            : (selected ? <NodeInspector node={selected} /> : <EmptyInspector />)}
         </aside>
       </section>
     </main>
@@ -169,6 +200,54 @@ function NodeInspector({ node }) {
 
 function Detail({ label, value }) {
   return <div className="detail-row"><dt>{label}</dt><dd>{value}</dd></div>;
+}
+
+function CellInspector({ cell, matrix, summary }) {
+  if (!cell) {
+    return (
+      <div className="empty-inspector">
+        <div className="empty-icon">%</div>
+        <h2>Hover a matrix cell</h2>
+        <p>Validator trust metrics will appear here.</p>
+        {summary && (
+          <dl className="detail-list">
+            <Detail label="Validators" value={matrix.size.toLocaleString()} />
+            <Detail label="Interconnect cells" value={summary.cells.toLocaleString()} />
+            <Detail label="Avg trust" value={summary.avgTrust.toFixed(3)} />
+            <Detail label="Avg latency" value={`${summary.avgLatencyMs.toFixed(2)} ms`} />
+          </dl>
+        )}
+      </div>
+    );
+  }
+  const source = matrix.nodes[cell.sourceIndex];
+  const target = matrix.nodes[cell.targetIndex];
+  return (
+    <>
+      <div className="node-heading">
+        <span className={`node-status cell-${cell.agreement}`}>{cell.agreement}</span>
+        <h2>{source?.name} → {target?.name}</h2>
+        <code>{source?.publicKey}</code>
+        <code>{target?.publicKey}</code>
+      </div>
+      <dl className="detail-list">
+        <Detail label="Row validator" value={`${source?.name} (${source?.cluster})`} />
+        <Detail label="Column validator" value={`${target?.name} (${target?.cluster})`} />
+        <Detail label="Trust weight" value={cell.trust.toFixed(3)} />
+        <Detail label="Latency delta" value={`${cell.latencyMs.toFixed(2)} ms`} />
+        <Detail label="Row phase" value={source?.phase} />
+        <Detail label="Column phase" value={target?.phase} />
+        <Detail label="Row TPS" value={source?.tps ? source.tps.toFixed(1) : 'No sample'} />
+        <Detail label="Column TPS" value={target?.tps ? target.tps.toFixed(1) : 'No sample'} />
+      </dl>
+      <div className="inspector-note">
+        {cell.agreement === 'agreeing' ? 'Both validators report externalize.'
+          : cell.agreement === 'diverged' ? 'At least one validator is stalled.'
+            : cell.agreement === 'lagging' ? 'One side is behind the other.'
+              : cell.agreement === 'confirming' ? 'Both sides are confirming ballots.' : 'Phase not reported.'}
+      </div>
+    </>
+  );
 }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>);

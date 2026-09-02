@@ -7,18 +7,22 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/graphModel.test.js",
+    "test": "node --test src/graphModel.test.js matrix/quorumMatrixModel.test.js",
+    "matrix:perf": "node scripts/matrix-perf.mjs",
+    "matrix:browser:perf": "node scripts/browser-perf.mjs",
     "mock:stream": "node scripts/mock-kafka-stream.mjs --serve",
     "stream:kafka": "node scripts/kafka-websocket-bridge.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "three": "^0.171.0",
-    "vite": "^6.0.5",
+    "kafkajs": "^2.2.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "ws": "^8.18.0",
-    "kafkajs": "^2.2.4"
+    "three": "^0.171.0",
+    "vite": "^6.0.5",
+    "ws": "^8.18.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
+  }
 }
