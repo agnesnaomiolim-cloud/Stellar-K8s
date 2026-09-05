@@ -317,8 +317,34 @@ spec:
                     type: number
                   canaryTestTimeoutSecs:
                     default: 300
-                    format: uint64
+                    format: int64
+                    type: integer
+
+              storageSnapshot:
+                description: Automated storage snapshot configuration
+                nullable: true
+                properties:
+                  enabled:
+                    type: boolean
+                  schedule:
+                    type: string
+                  retention:
+                    type: integer
+                type: object
+              cloudBackup:
+                description: Cloud backup configuration for automated cloud backups
+                nullable: true
+                properties:
+                  enabled:
+                    type: boolean
+                  provider:
+                    type: string
+                  bucket:
+                    type: string
+                type: object
                     minimum: 0.0
+                type: object
+                    type: integer
                     type: integer
                   consensusHealthThreshold:
                     default: 0.95
@@ -1309,6 +1335,66 @@ spec:
                     default: true
                     description: Enable sidecar injection for this node
                     type: boolean
+                type: object
+              cloudBackup:
+                description: >-
+                  Automated storage snapshot and cloud backup controller configuration. Manages
+                  persistent volume snapshot lifecycle across AWS EBS, GCP PD, or local storage
+                  providers, including ledger-aligned snapshot creation, retention pruning, and
+                  instant restore for new nodes.
+                nullable: true
+                properties:
+                  enabled:
+                    default: false
+                    type: boolean
+                  provider:
+                    description: Storage provider to use for snapshot lifecycle API calls.
+                    enum:
+                    - aws
+                    - gcp
+                    - local
+                    type: string
+                  region:
+                    description: Cloud provider region for snapshot API calls.
+                    nullable: true
+                    type: string
+                  schedule:
+                    description: Cron expression for automatic snapshot creation.
+                    nullable: true
+                    type: string
+                  ledgerInterval:
+                    description: >-
+                      Trigger a snapshot every N ledger sequence markers instead of on a
+                      wall-clock schedule.
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  retention:
+                    description: Retention policy for purging expired snapshot assets.
+                    nullable: true
+                    properties:
+                      maxCount:
+                        description: Maximum number of snapshots to retain per node. 0 means no limit.
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      maxAge:
+                        description: Maximum age of a snapshot to retain before expiration, e.g. "168h" or "7d".
+                        type: string
+                    type: object
+                  volumeSnapshotClassName:
+                    description: VolumeSnapshotClass to use for the configured provider.
+                    nullable: true
+                    type: string
+                  flushBeforeSnapshot:
+                    default: true
+                    description: Pause database write flushes before snapshot initialization to guarantee crash consistency.
+                    type: boolean
+                  credentialsSecretRef:
+                    description: Secret containing cloud provider credentials.
+                    nullable: true
+                    type: string
                 type: object
               snapshotSchedule:
                 description: Schedule and options for taking CSI VolumeSnapshots of

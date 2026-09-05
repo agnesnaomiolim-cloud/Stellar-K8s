@@ -40,7 +40,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use k8s_openapi::api::apps::v1::StatefulSet;
-use k8s_openapi::api::core::v1::{Namespace, Service};
+use k8s_openapi::api::core::v1::{Namespace, PersistentVolumeClaim, Service};
 use kube::{
     api::{Api, DeleteParams, PostParams},
     Client,
@@ -455,6 +455,30 @@ impl BackupVerificationScheduler {
         name: &str,
         report: &mut VerificationReport,
     ) -> Result<()> {
+        // For volume snapshot backups, restore the volume before PostgreSQL
+        // starts so the StatefulSet adopts the PVC restored from the snapshot.
+        if matches!(self.config.backup_source, BackupSource::VolumeSnapshot { .. }) {
+            match self.restore_backup(temp_namespace, name).await {
+                Ok(_) => {
+                    report.checks.push(VerificationCheck {
+                        name: "RestoreBackup".to_string(),
+                        passed: true,
+                        message: "Volume snapshot restored successfully".to_string(),
+                        duration_ms: 0,
+                    });
+                }
+                Err(e) => {
+                    report.checks.push(VerificationCheck {
+                        name: "RestoreBackup".to_string(),
+                        passed: false,
+                        message: format!("Failed to restore volume snapshot: {}", e),
+                        duration_ms: 0,
+                    });
+                    return Err(e);
+                }
+            }
+        }
+
         // Step 2: Deploy PostgreSQL instance
         let db_service = self.deploy_postgres(temp_namespace, name).await?;
         report.checks.push(VerificationCheck {
@@ -467,24 +491,26 @@ impl BackupVerificationScheduler {
         // Wait for PostgreSQL to be ready
         sleep(Duration::from_secs(30)).await;
 
-        // Step 3: Restore backup
-        match self.restore_backup(temp_namespace, name).await {
-            Ok(_) => {
-                report.checks.push(VerificationCheck {
-                    name: "RestoreBackup".to_string(),
-                    passed: true,
-                    message: "Backup restored successfully".to_string(),
-                    duration_ms: 0,
-                });
-            }
-            Err(e) => {
-                report.checks.push(VerificationCheck {
-                    name: "RestoreBackup".to_string(),
-                    passed: false,
-                    message: format!("Failed to restore backup: {}", e),
-                    duration_ms: 0,
-                });
-                return Err(e);
+        // Step 3: Restore non-snapshot backups now that PostgreSQL is running.
+        if !matches!(self.config.backup_source, BackupSource::VolumeSnapshot { .. }) {
+            match self.restore_backup(temp_namespace, name).await {
+                Ok(_) => {
+                    report.checks.push(VerificationCheck {
+                        name: "RestoreBackup".to_string(),
+                        passed: true,
+                        message: "Backup restored successfully".to_string(),
+                        duration_ms: 0,
+                    });
+                }
+                Err(e) => {
+                    report.checks.push(VerificationCheck {
+                        name: "RestoreBackup".to_string(),
+                        passed: false,
+                        message: format!("Failed to restore backup: {}", e),
+                        duration_ms: 0,
+                    });
+                    return Err(e);
+                }
             }
         }
 
@@ -659,7 +685,7 @@ impl BackupVerificationScheduler {
     }
 
     /// Restore backup to temporary database
-    async fn restore_backup(&self, _namespace: &str, _name: &str) -> Result<()> {
+    async fn restore_backup(&self, namespace: &str, name: &str) -> Result<()> {
         match &self.config.backup_source {
             BackupSource::S3 {
                 bucket,
@@ -675,10 +701,42 @@ impl BackupVerificationScheduler {
             }
             BackupSource::VolumeSnapshot {
                 snapshot_name,
-                storage_class: _,
+                storage_class,
             } => {
                 info!("Restoring from VolumeSnapshot: {}", snapshot_name);
-                // Create PVC from snapshot
+                let service_name = format!("{}-postgres", name);
+                let pvc_name = format!("data-{}-0", service_name);
+                let pvcs: Api<PersistentVolumeClaim> =
+                    Api::namespaced(self.client.clone(), namespace);
+
+                let pvc = serde_json::json!({
+                    "apiVersion": "v1",
+                    "kind": "PersistentVolumeClaim",
+                    "metadata": {
+                        "name": pvc_name,
+                        "namespace": namespace
+                    },
+                    "spec": {
+                        "storageClassName": storage_class,
+                        "accessModes": ["ReadWriteOnce"],
+                        "resources": {
+                            "requests": {
+                                "storage": self.config.resources.storage_size
+                            }
+                        },
+                        "dataSource": {
+                            "apiGroup": "snapshot.storage.k8s.io",
+                            "kind": "VolumeSnapshot",
+                            "name": snapshot_name
+                        }
+                    }
+                });
+
+                pvcs.create(&PostParams::default(), &serde_json::from_value(pvc)?)
+                    .await
+                    .context("Failed to create PVC from VolumeSnapshot")?;
+
+                info!("Created PVC {} from snapshot {}", pvc_name, snapshot_name);
                 Ok(())
             }
             BackupSource::PgBackRest { repo_path, stanza } => {
