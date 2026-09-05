@@ -25,13 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
           cache-key: "dep-wave-security"
-          cache-key: "ci-security"
           extra-tools: "cargo-audit cargo-deny"
 
       # A. Dependency vulnerability scanning (cargo-audit)
@@ -91,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -116,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -172,13 +171,12 @@ jobs:
     timeout-minutes: 30
     needs: []
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
           cache-key: "perf-wave-crd-perf"
-          cache-key: "ci-crd-perf"
 
       # A. Build and run Criterion benchmarks (compile check)
       - name: Build CRD benchmarks

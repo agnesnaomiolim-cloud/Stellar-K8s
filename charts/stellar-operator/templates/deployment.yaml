@@ -34,10 +34,14 @@ spec:
       serviceAccountName: {{ include "stellar-operator.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.operator.ebpf.enabled }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
       volumes:
         - name: operator-config
           configMap:
-            name: {{ include "stellar-operator.fullname" . }}-defaults
+            name: {{ include "stellar-operator.fullname" . }}-config
         {{- if .Values.mtls.enabled }}
         - name: stellar-tls
           secret:
@@ -61,7 +65,11 @@ spec:
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
+            {{- if .Values.operator.ebpf.enabled }}
+            {{- toYaml .Values.operator.ebpf.securityContext | nindent 12 }}
+            {{- else }}
             {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- end }}
           image: {{ include "stellar-operator.operatorImage" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
@@ -96,6 +104,12 @@ spec:
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: "stellar-operator"
+            - name: OTEL_TRACES_SAMPLER
+              value: "parentbased_traceidratio"
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.otel.samplingRatio | quote }}
             {{- end }}
           volumeMounts:
             - name: operator-config
@@ -184,7 +198,7 @@ spec:
         - name: fork-detector
           image: {{ include "stellar-operator.componentImage" (dict "root" . "repository" .Values.forkDetector.image.repository "tag" .Values.forkDetector.image.tag) }}
           imagePullPolicy: {{ .Values.forkDetector.image.pullPolicy | default .Values.image.pullPolicy }}
-          command: ["/stellar-fork-detector"]
+          command: ["/stellar-fork"]
           env:
             - name: FORK_DETECTOR_LOCAL_ENDPOINT
               value: {{ .Values.forkDetector.localEndpoint | quote }}

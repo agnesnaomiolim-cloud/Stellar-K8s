@@ -163,7 +163,15 @@ jobs:
         with:
           cache-key: "ci-version"
 
-      - name: Verify Cargo.toml and binary version match
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsasl2-dev libcurl4-openssl-dev libbpf-dev clang linux-tools-common linux-tools-generic
+          BPFTOOL="$(find /usr/lib/linux-tools* -name bpftool -type f 2>/dev/null | head -1)"
+          test -n "$BPFTOOL" || { echo "::error::bpftool not found" >&2; exit 1; }
+          sudo ln -sf "$BPFTOOL" /usr/local/bin/bpftool
+
+      - name: Verify Cargo.toml and stellar-operator version output
         run: |
           set -euo pipefail
           CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
@@ -250,8 +258,18 @@ jobs:
           toolchain: "1.92"
           components: "rustfmt clippy"
 
-      - name: Install shellcheck
-        run: sudo apt-get install -y shellcheck
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-lint"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck libsasl2-dev libcurl4-openssl-dev libbpf-dev clang linux-tools-common linux-tools-generic
+          BPFTOOL="$(find /usr/lib/linux-tools* -name bpftool -type f 2>/dev/null | head -1)"
+          test -n "$BPFTOOL" || { echo "::error::bpftool not found" >&2; exit 1; }
+          sudo ln -sf "$BPFTOOL" /usr/local/bin/bpftool
 
       - name: Run shellcheck
         run: |
@@ -363,8 +381,11 @@ jobs:
 
       - name: Run secret-handling checks
         run: |
-          chmod +x scripts/check-secrets.sh
-          bash scripts/check-secrets.sh
+          sudo apt-get update
+          sudo apt-get install -y libsasl2-dev libcurl4-openssl-dev libbpf-dev clang linux-tools-common linux-tools-generic
+          BPFTOOL="$(find /usr/lib/linux-tools* -name bpftool -type f 2>/dev/null | head -1)"
+          test -n "$BPFTOOL" || { echo "::error::bpftool not found" >&2; exit 1; }
+          sudo ln -sf "$BPFTOOL" /usr/local/bin/bpftool
 
   # ── 3b1. Failure diagnostics collector self-test (Issue #1151) ─────────────
   failure-diagnostics:
@@ -380,8 +401,11 @@ jobs:
 
       - name: Run diagnostics collector unit tests
         run: |
-          chmod +x scripts/ci/collect-failure-diagnostics.sh
-          bats scripts/tests/failure-diagnostics.bats
+          sudo apt-get update
+          sudo apt-get install -y libsasl2-dev libcurl4-openssl-dev libbpf-dev clang linux-tools-common linux-tools-generic
+          BPFTOOL="$(find /usr/lib/linux-tools* -name bpftool -type f 2>/dev/null | head -1)"
+          test -n "$BPFTOOL" || { echo "::error::bpftool not found" >&2; exit 1; }
+          sudo ln -sf "$BPFTOOL" /usr/local/bin/bpftool
 
       - name: Assemble demo bundle artifact
         if: always()
@@ -738,9 +762,11 @@ jobs:
       - name: Skip drift compare when crdgen is blocked
         if: steps.crdgen.outcome != 'success'
         run: |
-          echo "::warning::crdgen failed (known kube-core schema hoist panic on StellarNetwork enums)."
-          echo "Skipping CRD drift compare; committed CRD remains the source of truth until crdgen is fixed."
-          git checkout -- config/crd/ || true
+          sudo apt-get update
+          sudo apt-get install -y libsasl2-dev libcurl4-openssl-dev libbpf-dev clang linux-tools-common linux-tools-generic
+          BPFTOOL="$(find /usr/lib/linux-tools* -name bpftool -type f 2>/dev/null | head -1)"
+          test -n "$BPFTOOL" || { echo "::error::bpftool not found" >&2; exit 1; }
+          sudo ln -sf "$BPFTOOL" /usr/local/bin/bpftool
 
   # ── 7b. Docs link check ───────────────────────────────────────────────────────
   # Removed: overlapped lychee (`repo-wide-link-check`). Keep

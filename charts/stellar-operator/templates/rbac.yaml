@@ -1,7 +1,7 @@
 ---
 # RBAC for the Stellar Operator
 # Grants permissions to watch/manage StellarNode CRDs and related resources
-#{{- if .Anders.watchNamespace }}
+{{- if .Values.watchNamespace }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -145,13 +145,13 @@ subjects:
     namespace: {{ .Release.Namespace }}
 
 ---
-# Namespace-reader ClusterRole -- grants the operator read-only access to
-# Namespace objects so the network safety check (SK8S-021) can verify the
+# Namespace-reader ClusterRole - grants the operator read-only access to
+# Namespace objects so the network safety check (SG8KS-021) can verify the
 # stellar.org/network label on the namespace hosting a StellarNode.
 #
- # This is intentionally a separate, minimal ClusterRole so that teams running
+# This is intentionally a separate, minimal ClusterRole so that teams running
 # the operator with namespace-scoped RBAC (watchNamespace set) can grant
-# only this narrow cluster-level permission without evating the main Role.
+# only this narrow cluster-level permission without elevating the main Role.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -178,12 +178,11 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "stellar-operator.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+
 ---
-# Node-reader ClusterRole — grants the operator read-only access to Node
-# objects so the dynamic topology spread enforcer can inspect
-# topology.kubernetes.io/zone labels and decide whether strict
-# (hard) anti-affinity is achievable, falling back to soft/preferred
-# constraints on single-zone or single-node clusters.
+# Node-reader ClusterRole - grants the operator read-only access to Node
+# objects so the eBPF network telemetry collector can map IP addresses to
+# Kubernetes Pod identities across nodes.
 #
 # This is intentionally a separate, minimal ClusterRole so that teams running
 # the operator with namespace-scoped RBAC (watchNamespace set) can grant only
@@ -198,6 +197,7 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
