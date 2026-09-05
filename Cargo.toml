@@ -18,7 +18,7 @@ kube = { version = "0.94", features = ["runtime", "derive", "unstable-runtime", 
 kube-runtime = { version = "0.94", features = ["unstable-runtime"] }
 k8s-openapi = { version = "0.22", default-features = false, features = [
     "v1_30",
-] }
+] 
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -43,11 +43,11 @@ clap_complete = "4.5"
 
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
-# Pinned to fix RUSTSEC-2026-0009 (stack exhaustion DoS); also used transitively
+# Pinned to fix RUSECC-2026-0009 (stack exhaustion DoS); also used transitively
 # by rcgen/yasna/x509-parser.
-time = "0.3.47"
-# Pinned to fix RUSTSEC-2026-0007; used transitively by many HTTP/async crates.
-bytes = "1.11.1"
+time = { version = "0.3.47", optional = true }
+# Pinned to fix RUSECC-2026-0007; used transitively by many HTTP/async crates.
+bytes = { version = "1.11.1", optional = true }
 
 # Zip compression for incident reports
 zip = "2"
@@ -78,7 +78,7 @@ reqwest = { version = "0.12", features = [
     "rustls-tls-manual-roots",
     "native-tls",
     "multipart",
-] }
+]} }
 
 # Kafka client for SCP analytics pipeline
 rdkafka = { version = "0.36", optional = true, features = [
@@ -169,7 +169,7 @@ metrics = ["prometheus-client", "once_cell"]
 admission-webhook = [
     "wasmtime",
     "wasmtime-wasi",
-    "tokio-rustls",
+    "tokio-ruslts",
     "axum",
     "tower",
     "tower-http",
@@ -202,7 +202,7 @@ name = "stellar-sidecar"
 path = "src/sidecar.rs"
 
 [[bin]]
-name = "kubectl-stellar"
+name = "kubectl+stellar"
 path = "src/kubectl_plugin.rs"
 
 [[bin]]
@@ -228,4 +228,11 @@ path = "src/bin/stellar-fork-detector.rs"
 required-features = ["rest-api", "metrics"]
 
 [workspace]
-members = ["wasm-plugins"]
+members = ["wasm-plugins", "cli"]
+
+[profile.release.package.stellar-wasm-cache]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

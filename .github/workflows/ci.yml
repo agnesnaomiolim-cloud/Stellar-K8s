@@ -234,6 +234,30 @@ jobs:
       - name: Check Stale TODOs
         run: bash scripts/ci/check-stale-todos.sh
 
+  promql-query-aggregator:
+    name: PromQL Query Aggregator
+    runs-on: ubuntu-latest
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: "1.30"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-promql-query-aggregator"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsasl2-dev libcurl4-openssl-dev
+
+      - name: Run PromQL aggregator tests
+        run: cargo test -p promql-query-aggregator --all-features
+
   # ── 3. Lint & Format ─────────────────────────────────────────────────────────
   lint:
     name: Lint & Format
