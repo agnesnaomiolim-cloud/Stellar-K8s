@@ -1,0 +1,48 @@
+# examples/bare-metal/metallb-l2-pool.yaml
+#
+# On-premises LoadBalancer for StellarNode services, with no cloud provider.
+# See docs/infrastructure/bare-metal.md, section 6.4.
+#
+# Install MetalLB first:
+#   helm repo add metallb https://metallb.github.io/metallb
+#   helm install metallb metallb/metallb -n metallb-system --create-namespace
+#
+# The pool below must be a range reserved on the PUBLIC VLAN (VLAN 400 in the
+# reference topology) and routed to the workers. L2Advertisement binds the
+# speaker to the bonded VLAN sub-interface so VIP traffic stays on that path.
+#
+# Reference the pool from a StellarNode like this:
+#
+#   spec:
+#     loadBalancer:
+#       enabled: true
+#       mode: L2
+#       addressPool: stellar-public
+#       loadBalancerIp: 10.40.0.20
+#       externalTrafficPolicy: Local
+
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: stellar-public
+  namespace: metallb-system
+spec:
+  # Reserve a contiguous block that is NOT handed out by DHCP.
+  addresses:
+    - 10.40.0.20-10.40.0.40
+  # Do not hand out VIPs to Services that did not ask for this pool.
+  autoAssign: false
+  avoidBuggyIPs: true
+
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: stellar-public-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - stellar-public
+  # Advertise only on the public VLAN sub-interface of the bond.
+  interfaces:
+    - bond0.400

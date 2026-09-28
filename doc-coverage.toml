@@ -161,6 +161,13 @@ src = [
     "src/preflight.rs",
 ]
 
+# ── Bare-Metal Bootstrap ───────────────────────────────────────────────────────
+[[entry]]
+doc = "docs/infrastructure/bare-metal.md"
+src = [
+    "examples/bare-metal/**",
+]
+
 # ── Ingress Guide ──────────────────────────────────────────────────────────────
 [[entry]]
 doc = "docs/ingress-guide.md"

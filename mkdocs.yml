@@ -100,6 +100,8 @@ nav:
     - Soroban RPC: deployment-guides/soroban-rpc.md
   - Multi-Region:
     - multi-region-deployment-and-failover.md
+  - Infrastructure:
+    - Bare-Metal Bootstrap: infrastructure/bare-metal.md
   - Configuration:
     - configuration/index.md
     - CRD Reference: configuration/crd-reference.md

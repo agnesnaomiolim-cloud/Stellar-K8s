@@ -1,0 +1,72 @@
+# examples/bare-metal/validator-nvme.yaml
+#
+# A Mainnet validator whose data volume lives on directly-attached NVMe.
+# See docs/infrastructure/bare-metal.md, sections 5 and 8.
+#
+# Prerequisites:
+#   1. Nodes labelled:  kubectl label node <node> stellar.io/nvme=true stellar.io/node-class=validator
+#   2. StorageClass:    kubectl apply -f examples/bare-metal/storage-class.yaml
+#   3. Seed secret:     kubectl -n stellar create secret generic validator-seed-mainnet \
+#                         --from-literal=STELLAR_CORE_SEED="S..."
+#
+# spec.storage.mode: Local tells the operator to use a node-local class, and
+# spec.storage.nodeAffinity is applied to the POD so the scheduler pins it to the
+# server that owns the disk BEFORE the PV is provisioned. storageClass is set
+# explicitly so the manifest does not depend on local-path/local-storage auto-detection.
+
+apiVersion: stellar.org/v1alpha1
+kind: StellarNode
+metadata:
+  name: validator-mainnet-nvme
+  namespace: stellar
+spec:
+  nodeType: Validator
+  network: mainnet
+  version: "v21.0.0"
+
+  # Required rollout availability. maxUnavailable: 0 keeps the signer up during upgrades.
+  maxUnavailable: 0
+  minAvailable: 1
+  topologySpreadConstraints: []
+
+  resources:
+    requests:
+      cpu: "4"
+      memory: "8Gi"
+    limits:
+      cpu: "8"
+      memory: "16Gi"
+
+  # Node-local NVMe storage.
+  storage:
+    mode: Local
+    storageClass: stellar-nvme-local
+    # Mainnet with Full history needs ~1.5 TiB. Size for peak growth; local PVs
+    # cannot be expanded by the CSI resize controller after the fact.
+    size: "1500Gi"
+    # Keep the PV if the PVC is ever deleted, so ledger data is recoverable.
+    retentionPolicy: Retain
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: stellar.io/nvme
+                operator: In
+                values: ["true"]
+
+  validatorConfig:
+    seedSecretRef: validator-seed-mainnet
+    enableHistoryArchive: true
+    historyArchiveUrls:
+      - "https://history.stellar.org/prd/core-live/core_live_001"
+      - "https://history.stellar.org/prd/core-live/core_live_002"
+    quorumSet: |
+      [QUORUM_SET]
+      THRESHOLD_PERCENT=67
+      VALIDATORS=[
+        "$sdf1", "$sdf2", "$sdf3"
+      ]
+
+  # Spread validators across physical hosts so one server loss never removes quorum.
+  podAntiAffinity: Hard
+  alerting: true
