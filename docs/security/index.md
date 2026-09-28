@@ -13,6 +13,7 @@
 | Compliance control mapping | [compliance-mapping.md](compliance-mapping.md) | Audit-ready control traceability |
 | CIS hardening patterns | [cis-kubernetes-hardening.md](cis-kubernetes-hardening.md) | Automated cluster baseline enforcement |
 | Secrets and least privilege | [secrets-access-control.md](secrets-access-control.md) | Minimized blast radius and secure rotation |
+| Validator seed sharding | [key-sharding.md](key-sharding.md) | Shamir custody, Vault Transit assembly, air-gapped ceremony |
 | Incident response playbook | [incident-response-playbook.md](incident-response-playbook.md) | Fast containment and forensic continuity |
 | Automated dependency updates | [dependency-updates.md](dependency-updates.md) | Dependabot PR review, CI gates, and merge process |
 
