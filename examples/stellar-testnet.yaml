@@ -1,0 +1,54 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# examples/stellar-testnet.yaml
+#
+# Example StellarTestnet manifest.  Apply with:
+#
+#   kubectl apply -f examples/stellar-testnet.yaml
+#
+# Once the phase turns Ready, retrieve the Soroban RPC URL:
+#
+#   kubectl get stellartestnet my-testnet -o jsonpath='{.status.rpcUrl}'
+#
+# Closes #246
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: stellar.org/v1alpha1
+kind: StellarTestnet
+metadata:
+  name: my-testnet
+  namespace: ci
+  labels:
+    app.kubernetes.io/part-of: stellar-k8s-ci
+spec:
+  # ── Genesis ────────────────────────────────────────────────────────────────
+  genesisConfig:
+    # Leave networkPassphrase empty to have the operator auto-generate one.
+    # networkPassphrase: "My Custom Testnet ; 2024"
+    initialLedger: 2
+    targetLedgerTime: 1   # 1-second ledger close for fast CI feedback
+    maxTxSize: 100
+
+  # ── Pre-funded accounts ────────────────────────────────────────────────────
+  fundedAccounts:
+    - name: deployer
+      balanceXlm: 10000
+    - name: user1
+      balanceXlm: 5000
+    - name: user2
+      balanceXlm: 5000
+
+  # ── Soroban RPC sidecar ────────────────────────────────────────────────────
+  sorobanRpc:
+    enabled: true
+    image: "stellar/soroban-rpc:latest"
+    port: 8000
+
+  # ── Container images ───────────────────────────────────────────────────────
+  stellarCoreImage: "stellar/stellar-core:latest"
+
+  # ── Resource requests ──────────────────────────────────────────────────────
+  resources:
+    cpu: "500m"
+    memory: "512Mi"
+
+  # ── Auto-delete after 30 minutes ──────────────────────────────────────────
+  ttlSeconds: 1800

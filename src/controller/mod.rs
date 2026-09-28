@@ -112,6 +112,9 @@ pub(crate) mod vsl;
 pub mod webhook_delivery;
 pub mod zk_archive_verifier;
 
+// Issue #246 – Ephemeral Kubernetes-native Stellar testnets
+pub mod testnet_provisioner;
+
 pub use anomaly_detection::{run_anomaly_detection, AnomalyDetector, AnomalyEvent};
 pub use archive_health::{
     calculate_backoff, check_archive_integrity, check_history_archive_health, ArchiveHealthResult,
@@ -204,3 +207,6 @@ pub use topology::{
     ClusterTopology, EnforcementResult, TopologyMode, TopologyRuleSet, TopologySpreadConstraint,
     WhenUnsatisfiable,
 };
+
+// Issue #246 – Ephemeral Kubernetes-native Stellar testnets
+pub use testnet_provisioner::{run_testnet_controller, TestnetState, TESTNET_FINALIZER, TESTNET_LABEL};

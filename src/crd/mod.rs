@@ -95,6 +95,9 @@ pub mod stellar_gitops;
 pub mod stellar_registry;
 pub mod stellar_security;
 
+// Issue #246 – Ephemeral Kubernetes-native Stellar testnets
+pub mod testnet;
+
 #[cfg(test)]
 mod tests;
 
@@ -203,4 +206,10 @@ pub use stellar_security::{
     NetworkPoliciesConfig, PodSecurityLevel, PodSecurityStandardsConfig, RBACConfig,
     SecretManagementConfig, SecretProvider, SecurityMonitoringConfig, StellarSecurityPolicy,
     StellarSecurityPolicySpec, StellarSecurityPolicyStatus,
+};
+
+// Issue #246 – Ephemeral Kubernetes-native Stellar testnets
+pub use testnet::{
+    FundedAccount, GenesisConfig, SorobanRpcConfig, StellarTestnet, StellarTestnetSpec,
+    StellarTestnetStatus, TestnetCondition, TestnetIngressConfig, TestnetPhase, TestnetResources,
 };
