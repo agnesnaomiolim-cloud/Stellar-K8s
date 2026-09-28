@@ -222,7 +222,7 @@ jobs:
         if: failure()
         run: |
           echo "::error::DR drill failed - backup/restore may be compromised"
-          # TODO: Send alert to Slack/PagerDuty
+          # TODO(exempt: alert routing is deployment-specific): Send alert to Slack/PagerDuty
 
   cleanup-test-cluster:
     name: Cleanup Test Resources

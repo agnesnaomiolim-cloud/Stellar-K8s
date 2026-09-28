@@ -31,7 +31,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache-key: "dep-wave-security"
-          cache-key: "ci-security"
           extra-tools: "cargo-audit cargo-deny"
 
       # A. Dependency vulnerability scanning (cargo-audit)
@@ -178,7 +177,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache-key: "perf-wave-crd-perf"
-          cache-key: "ci-crd-perf"
 
       # A. Build and run Criterion benchmarks (compile check)
       - name: Build CRD benchmarks

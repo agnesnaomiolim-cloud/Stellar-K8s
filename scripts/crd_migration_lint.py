@@ -111,7 +111,21 @@ def _load_at_ref(ref: str, rel_path: str, repo_root: Path):
     )
     if proc.returncode != 0:
         return None  # file did not exist at the baseline ref -> new CRD, skip
-    return _first_crd_doc(proc.stdout)
+    return _parse_baseline(proc.stdout, f"{ref}:{rel_path}")
+
+
+def _parse_baseline(text: str, label: str):
+    """Parse the baseline CRD, treating unparseable YAML as "no baseline".
+
+    A manifest that is not valid YAML can never have been applied to a
+    cluster, so there is no served schema whose compatibility could be broken.
+    Skipping (with a warning) lets the PR that repairs such a file pass.
+    """
+    try:
+        return _first_crd_doc(text)
+    except yaml.YAMLError as exc:
+        print(f"warning: baseline {label} is not valid YAML, skipping: {exc}", file=sys.stderr)
+        return None
 
 
 def main() -> int:
@@ -133,7 +147,12 @@ def main() -> int:
         if old is None:
             print(f"skip (new or non-CRD file at baseline): {rel}")
             continue
-        new = _first_crd_doc(crd_file.read_text())
+        try:
+            new = _first_crd_doc(crd_file.read_text())
+        except yaml.YAMLError as exc:
+            all_problems.append(f"{rel}: not valid YAML: {exc}")
+            print(f"FAIL: {rel}")
+            continue
         if new is None:
             all_problems.append(f"{rel}: CRD document was removed from the file")
             print(f"FAIL: {rel}")

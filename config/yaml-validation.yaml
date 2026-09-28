@@ -32,6 +32,12 @@ exclude:
   # Design-phase specification scratch space, not shipped manifests.
   - ".kiro/**"
   - "target/**"
+  # Helm chart templates inside the Argo CD example (Go templates, not YAML).
+  - "examples/argocd/*/node-chart/templates/**"
+  # Kustomize and kind configuration files are consumed by their CLIs, not
+  # the Kubernetes API, and carry no metadata by design.
+  - "**/kustomization.yaml"
+  - "examples/multi-cluster/kind/*.yaml"
 
 # Bind a path glob to a JSON Schema file (repo-relative).
 schemas:
@@ -106,3 +112,15 @@ known_deviations:
   - path: "examples/metallb-bgp-anycast.yaml"
     layer: "L3-schema"
     reason: "MetalLB demo: BGP block omits a site-specific localAsn"
+
+  # ── Intentionally partial / placeholder manifests ────────────────────────
+  # The recovery-mode runbook files are applied with `kubectl apply` onto an
+  # existing StellarNode, so they only carry the fields being changed; the
+  # merged object keeps network/nodeType/version from the live resource.
+  - path: "examples/recovery-mode-*.yaml"
+    layer: "L3-schema"
+    reason: "recovery runbook: partial manifest merged onto a live StellarNode"
+  - path: "examples/debug/repair-pod.yaml"
+    layer: "L2-structure"
+    contains: "is not a valid DNS-1123 label"
+    reason: "repair pod: <NAMESPACE> is a placeholder the operator must fill in"

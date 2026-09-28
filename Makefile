@@ -1,4 +1,4 @@
-.PHONY: help build test fmt fmt-check lint clean docker-build install-crd apply-samples dev-setup ci-local benchmark benchmark-upgrade benchmark-webhook benchmark-webhook-health benchmark-webhook-compare benchmark-webhook-save benchmark-all benchmark-soroban-cache wasm-cache-build run-dev helm-lint crd-gen run-local compose-up compose-dev compose-down compose-logs quickstart
+.PHONY: help build test fmt fmt-check lint clean docker-build install-crd apply-samples dev-setup ci-local benchmark benchmark-upgrade benchmark-webhook benchmark-webhook-health benchmark-webhook-compare benchmark-webhook-save benchmark-all benchmark-soroban-cache wasm-cache-build run-dev helm-lint crd-gen run-local compose-up compose-dev compose-down compose-logs quickstart preflight
 
 # Default target
 .DEFAULT_GOAL := help
@@ -77,6 +77,9 @@ docker-multiarch: ## Build multi-arch Docker image
 ci-local: fmt-check lint audit test build ## Run full CI locally
 	@echo ""
 	@echo "✓ All CI checks passed!"
+
+preflight: ## Verify required tools are installed at the pinned minimum versions
+	@bash scripts/preflight.sh
 
 quick: fmt-check ## Quick pre-commit check
 	@$(CARGO) check --workspace
