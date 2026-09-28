@@ -64,6 +64,19 @@ finding() {
     findings=$((findings + 1))
 }
 
+# in_rust_test_module FILE LINE — true when LINE of a .rs FILE sits inside the
+# file's trailing `#[cfg(test)] mod ... { }` block. By Rust convention the unit
+# test module is the last item in a file, so every line after its opening
+# attribute is test-only code (fixtures there never ship in the binary).
+in_rust_test_module() {
+    local file="$1" line="$2" start
+    [[ "$file" == *.rs ]] || return 1
+    start=$(awk '/^[[:space:]]*#\[cfg\(test\)\]/ { attr = NR; next }
+                 attr && /^[[:space:]]*(pub[^ ]* )?mod [A-Za-z_]+/ { print attr; exit }
+                 attr && NF { attr = 0 }' "$file")
+    [[ -n "$start" && "$line" -gt "$start" ]]
+}
+
 # ── Check 1: Hard-coded credential patterns in source ─────────────────────────
 separator
 echo -e "${BOLD}Check 1 — Hard-coded credential patterns${RESET}"
@@ -96,6 +109,7 @@ done < <(grep -rn --include="*.rs" --include="*.sh" --include="*.yaml" --include
 # PEM private key block
 while IFS=: read -r file lineno _; do
     [[ "$file" == *test* || "$file" == *example* || "$file" == *fixture* || "$file" == *log_scrub* || "$file" == *pipeline_log_redaction* ]] && continue
+    in_rust_test_module "$file" "$lineno" && continue
     finding "$file" "$lineno" "PEM private key block committed to repository"
 done < <(grep -rn --include="*.rs" --include="*.pem" --include="*.key" \
     "BEGIN.*PRIVATE KEY" . \
@@ -107,6 +121,7 @@ while IFS=: read -r file lineno content; do
     [[ "$file" == *test* || "$file" == *example* || "$file" == *fixture* || "$file" == *sample* || "$file" == *secret_rotation* || "$file" == *secret-rotation* || "$file" == *check-secrets* ]] && continue
     # Allow obvious placeholders and Secret *resource names* (not credential values).
     echo "$content" | grep -qiE "(placeholder|example|changeme|your[-_]|<[^>]+>|\\\$\{|test[_-]?password|stellar-core-secret)" && continue
+    in_rust_test_module "$file" "$lineno" && continue
     finding "$file" "$lineno" "Possible inline secret assignment (password=/secret=/token=)"
 done < <(grep -rni --include="*.rs" --include="*.sh" --include="*.yaml" --include="*.yml" \
     -E "(password|secret|token)\s*=\s*['\"][^'\"]{8,}" . \

@@ -443,15 +443,31 @@
               "minimum": 0.0,
               "type": "integer"
             },
+            "enableLedgerPruning": {
+              "default": false,
+              "description": "Prune old ledgers (history_ledgers and dependent history tables) during maintenance. Disabled by default because pruning is destructive.",
+              "type": "boolean"
+            },
             "enabled": {
               "default": true,
               "description": "Enable automated database maintenance",
               "type": "boolean"
             },
+            "pruningRetentionDays": {
+              "default": 30,
+              "description": "Retention period for pruned ledgers in days (default: 30). Only used when enableLedgerPruning is true.",
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
             "readPoolCoordination": {
               "default": true,
               "description": "Coordination with read-pool for zero-downtime",
               "type": "boolean"
+            },
+            "schedule": {
+              "description": "Optional cron expression (6 fields with seconds, e.g., \"0 0 2 * * *\") that triggers compaction on a fixed schedule. When set, this takes precedence over windowStart/windowDuration.",
+              "type": "string"
             },
             "windowDuration": {
               "description": "Maintenance window duration (e.g., \"2h\")",
@@ -1655,6 +1671,35 @@
           },
           "type": "object"
         },
+        "backupConfig": {
+          "description": "Pre-upgrade backup configuration for Validator PVC snapshots. When set, the operator snapshots the PVC before applying a new version.",
+          "nullable": true,
+          "properties": {
+            "encryptionKeyRef": {
+              "description": "Reference to a Cloud KMS key for encrypting the snapshot.",
+              "nullable": true,
+              "type": "string"
+            },
+            "flushBeforeSnapshot": {
+              "default": false,
+              "description": "If true, the operator will attempt to flush/lock the Stellar database briefly before creating the snapshot.",
+              "type": "boolean"
+            },
+            "readyTimeoutSeconds": {
+              "default": 300,
+              "description": "Maximum time in seconds to wait for the snapshot to become ReadyToUse before failing the upgrade.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "volumeSnapshotClassName": {
+              "description": "VolumeSnapshotClass name. If unset, the default class for the PVC's driver is used.",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "sorobanConfig": {
           "description": "Soroban RPC server configuration",
           "nullable": true,
@@ -1710,6 +1755,41 @@
               "format": "uint32",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "cache": {
+              "description": "Bounded fail-open cache for read-only Soroban RPC state requests",
+              "nullable": true,
+              "properties": {
+                "enabled": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "ttlSecs": {
+                  "default": 30,
+                  "format": "int64",
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "maxEntries": {
+                  "default": 10000,
+                  "format": "int64",
+                  "maximum": 10000.0,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "maxBytes": {
+                  "default": 67108864,
+                  "format": "int64",
+                  "maximum": 67108864.0,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "image": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "type": "object"
             },
             "stellarCoreUrl": {
               "type": "string"
@@ -1808,8 +1888,49 @@
           "default": {
             "type": "rollingUpdate"
           },
-          "description": "Rollout strategy for updates (RollingUpdate or Canary)",
+          "description": "Rollout strategy for updates (RollingUpdate, Canary, or BlueGreen). Validators support RollingUpdate and BlueGreen; Canary is rejected.",
           "properties": {
+            "blueGreen": {
+              "description": "Blue/green settings for Validator (Stellar Core) rollouts. Ignored for Horizon/SorobanRpc (those use the Horizon migration path).",
+              "nullable": true,
+              "properties": {
+                "maxLedgerLag": {
+                  "default": 5,
+                  "description": "Maximum allowed ledger lag of green behind blue (or network reference). Matches the repository's read-replica freshness default of 5.",
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "postCutoverSuccessThreshold": {
+                  "default": 3,
+                  "description": "Consecutive successful post-cutover health evaluations before blue may be retired.",
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "readyTimeoutSeconds": {
+                  "default": 3600,
+                  "description": "Maximum seconds to wait for green to become sync-eligible before failing closed.",
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "requireVolumeSnapshot": {
+                  "default": true,
+                  "description": "When true (default), green PVC must be provisioned from a CSI VolumeSnapshot of blue. When false, green may start from an empty PVC and catch up from history archives.",
+                  "type": "boolean"
+                },
+                "rollbackWindowSeconds": {
+                  "default": 3600,
+                  "description": "Seconds to retain scaled-down blue after successful cutover for instant rollback.",
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "volumeSnapshotClassName": {
+                  "description": "Optional VolumeSnapshotClass for the cutover snapshot. If unset, the cluster default is used.",
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "canary": {
               "description": "Configuration for Canary rollout",
               "nullable": true,
@@ -1831,7 +1952,8 @@
               "description": "Rollout strategy type",
               "enum": [
                 "rollingUpdate",
-                "canary"
+                "canary",
+                "blueGreen"
               ],
               "type": "string"
             }
@@ -2193,6 +2315,31 @@
       "description": "Status subresource for StellarNode\n\nReports the current state of the managed Stellar node using Kubernetes conventions. The operator continuously updates this status as the node progresses through its lifecycle.\n\n# Node Phases\n\n- `Pending` - Resource creation is queued but not started - `Creating` - Infrastructure (Pod, Service, etc.) is being created - `Running` - Pod is running but not yet synced - `Syncing` - Node is syncing blockchain data (validators) - `Ready` - Node is fully synced and operational - `Failed` - Node encountered an unrecoverable error - `Degraded` - Node is running but not fully healthy - `Remediating` - Operator is attempting to recover the node - `Terminating` - Node resources are being cleaned up",
       "nullable": true,
       "properties": {
+        "blueGreenActiveColor": {
+          "description": "Active deployment color for Validator blue/green (`blue` or `green`).",
+          "nullable": true,
+          "type": "string"
+        },
+        "blueGreenMessage": {
+          "description": "Human-readable message for the current Validator blue/green rollout.",
+          "nullable": true,
+          "type": "string"
+        },
+        "blueGreenPhase": {
+          "description": "Validator blue/green rollout phase (e.g. `BlueActive`, `WaitingForGreen`, `GreenActive`).",
+          "nullable": true,
+          "type": "string"
+        },
+        "blueGreenSnapshotName": {
+          "description": "VolumeSnapshot used to seed the green Validator PVC (if any).",
+          "nullable": true,
+          "type": "string"
+        },
+        "blueGreenTargetVersion": {
+          "description": "Target Core version for an in-progress Validator blue/green rollout.",
+          "nullable": true,
+          "type": "string"
+        },
         "bgpStatus": {
           "description": "BGP advertisement status (when using BGP mode)",
           "nullable": true,
