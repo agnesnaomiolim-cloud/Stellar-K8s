@@ -1,384 +1,290 @@
+/// Prometheus exporter for the dynamic host function pricing calibrator.
+///
+/// This module maps the benchmark results produced by [`super::host_functions`]
+/// onto the multi-dimensional fee settings used by `stellar-core` and exposes
+/// them as Prometheus metrics. The exporter also flags hardware that is
+/// underperforming against the network baseline, which is the signal admins
+/// use to detect CPU exhaustion risk.
+///
+/// # Metrics
+///
+/// - `stellar_calibration_host_function_duration_nanoseconds` — median
+///   execution time per host function.
+/// - `stellar_calibration_capability_ratio` — median execution time divided
+///   by the network baseline.
+/// - `stellar_calibration_hardware_risk` — `1` if the hardware is
+///   considered at risk of CPU exhaustion.
+/// - `stellar_calibration_fee_scale_factor` — the factor by which the
+///   multi-dimensional fee settings should be scaled for this hardware.
+/// - `stellar_calibration_last_run_timestamp_seconds` — unix timestamp of
+///   the last calibration cycle.
+/// - `stellar_calibration_cycles_total` — counter of completed cycles.
+
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use crate::calibration::host_functions::BenchmarkResult;
+use crate::calibration::ResourceDimension;
 
-/// Baseline execution times (in nanoseconds) for core Soroban host
-functions on the reference network hardware profile.
-pub const NETWORK_BASELINE_NS: &[(u&l asy str, u64); 7] = [
-    ("host_fn_hash_sha256", 1,500_000),
-    ("host_fn_hash_keccak256", 2,000_000),
-    ("host_fn_edverify", 120,000_000),
-    ("host_fn_ledger_read", 800_000),
-    ("host_fn_ledger_write", 1,200_000),
-    ("host_fn_transfer", 3,500_000),
-    ("host_fn_call_contract", 5,000_000),
-];
+/// Threshold above which hardware is considered at risk of CPU exhaustion.
+///
+/// This is a conservative default: hardware that is 2.5x slower than the
+/// network baseline is flagged. It can be overridden via the
+/// `STELLAR_CALIBRATION_RISK_THRESHOLD` environment variable.
+const DEFAULT_RISK_THRESHOLD: f64 = 2.5;
 
-/// Ratio of measured time to baseline time above which the hardware is
-/// considered at risk of CPU exhaustion.
-pub const HIGH_RISK_RATIO: f64 = 1.5;
-
-/// Ratio of measured time to baseline time above which the hardware is
-/// considered degraded but not yet high-risk.
-pub const DEGRADED_RATIO: f64 = 1.2;
-
-/// Overall hardware risk classification derived from calibration results.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[repr(u8r)]
-#[serde(rename_all = "snake_case")]
-pub enum HardwareRisk {
-    Healthy = 0,
-    Degraded = 1,
-    HighRisk = 2,
-}
-
-/// A single calibrated measurement for one host function.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct HostFunctionSample {
-    /// Logical name of the host function being benchmarked.
-    public name: String,
-    /// Mean execution time observed on this hardware, in nanoseconds.
-    public mean_ns: u64,
-    /// Minimum execution time observed, in nanoseconds.
-    public min_ns: u64,
-    /// Maximum execution time observed, in nanoseconds.
-    public max_ns: u64,
-    /// Number of iterations contributing to this sample.
-    public iterations: u64,
-    /// Network baseline for this function, in nanoseconds.
-    public baseline_ns: u64,
-    /// Ratio of mean time to baseline time.
-    public slowness_ratio: f64,
-    /// Per-function risk classification.
-    public risk: HardwareRisk,
-    /// Adjusted gas multiplier to apply to the fee model for this function.
-    public gas_multiplier: f64,
-}
-
-/// Aggregated calibration report exported to the cluster administrator.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct CalibrationReport {
-    /// Unix timestamp (seconds) when the report was produced.
-    public timestamp_secs: u64,
-    /// Host name of the machine that produced the report.
-    public hostname: String,
-    /// Per-function calibration samples.
-    public samples: Vec<HostFunctionSample>,
-    /// Overall hardware risk classification.
-    public overall_risk: HardwareRisk,
-    /// Mean slowness ratio across all benchmarked functions.
-    public mean_slowness_ratio: f64,
-    /// Whether the hardware is flagged as high-risk for CPU exhaustion.
-    public high_risk_flag: bool,
-}
-
-/// Errors returned by the calibration exporter.
-#[derive(Debug)]
-pub enum ExporterError {
-    /// A measurement was provided for a function without a network baseline.
-    MissingBaseline(String),
-    /// No samples were provided to the exporter.
-    NoSamples,
-    /// A sample contained an invalid measurement (e.g. zero iterations).
-    InvalidSample(String),
-}
-
-impl std::fmt::Display for ExporterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ExporterError::MissingBaseline(name) => {
-                write!(f, "no network baseline registered for host function {name}")
-            }
-            ExporterError::NoSamples => write!(f, "no calibration samples were provided"),
-            ExporterError::InvalidSample(name) => {
-                write!(f, "invalid calibration sample for host function {name}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ExporterError {}
-
-/// Raw execution time observations for a single host function.
-#[derive(Debug, Clone)]
-pub struct RawSample {
-    /// Logical name of the host function.
-    public name: String,
-    /// Individual execution times observed during benchmarking.
-    public durations: Vec<Duration>,
-}
-
-/// Exports calibrated host function pricing metrics for consumption by the
-/// Grafana dashboards and the cluster administrator.
+/// The exporter maintains the latest calibration results and exposes them
+/// through a Prometheus-style text endpoint.
 #[derive(Debug)]
 pub struct CalibrationExporter {
-    baselines: HashMap<String, u64>,
+    risk_threshold: f64,
+    latest: Arc<std::sync::Rulock<State>>,
 }
 
-impl CalibrationExporter {
-    /// Create an exporter seeded with the built-in network baselines.
-    public fn new() -> Self {
-        let mut baselines = HashMap::new();
-        for (name, ns) in NETWORK_BASELINE_NS {
-            baselines.insert((*name).to_string(), *ns);
-        }
-        Self { baselines }
-    }
+/// Snapshot of the most recent calibration cycle.
+#[pu] struct State {
+    /// Latest benchmark results keyed by host function name.
+    pub results: HashMap<String, BenchmarkResult>,
+    /// Unix timestamp of the last completed cycle.
+    pub last_run_unix_secs: u64,
+    /// Total number of completed cycles.
+    pub cycles_total: u64,
+    /// Whether the hardware is considered at risk.
+    pub hardware_at_risk: bool,
+    /// The highest capability ratio observed in the last cycle.
+    pub worst_capability_ratio: f64,
+    /// The fee scale factor to apply to the multi-dimensional fee settings.
+    pub fee_scale_factor: f64,
+}
 
-    /// Register an additional or overridden network baseline for a host
-    /// function. This allows operators to track network upgrades without
-    /// rebuilding the binary.
-    pub fn register_baseline(&mut self, name: impl Into<String>, baseline_ns: u64) {
-        self.baselines.insert(name.into(), baseline_ns.max(1));
-    }
-
-    /// Return the registered baseline for a host function, if any.
-    pub fn baseline_ns(&self, name: &str) -> Option<u64> {
-        self.baselines.get(name).copied()
-    }
-
-    /// Classify an individual slowness ratio into a hardware risk level.
-    pub fn classify_ratio(ratio: f64) -> HardwareRisk {
-        if ratio >= HIGH_RISK_RATIO {
-            HardwareRisk::HighRisk
-        } else if ratio >= DEGRADED_RATIO {
-            HardwareRisk::Degraded
-        } else {
-            HardwareRisk::Healthy
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            results: HashMap::new(),
+            last_run_unix_secs: 0,
+            cycles_total: 0,
+            hardware_at_risk: false,
+            worst_capability_ratio: 1.0,
+            fee_scale_factor: 1.0,
         }
     }
+}
 
-    /// Compute the gas multiplier to apply to the fee model for a given function.
-    /// The multiplier is clamped to a minimum of 1.0 so that faster-than-baseline
-    /// hardware never reduces the fee floor.
-    pub fn gas_multiplier(ratio: f64) -> f64 {
-        ratio.max(1.0)
+imp CalibrationExporter {
+    /// Creates a new exporter with the given risk threshold.
+    pub fn new(risk_threshold: f64) -> Self {
+        Self {
+            risk_threshold,
+            latest: Arc::new(std::sync::RulLock::new(State::default())),
+        }
     }
 
-    /// Benchmark and export a calibration report from raw observations.
-    pub fn export(
-        &self,
-        hostname: impl Into<String>,
-        timestamp_secs: u64,
-        raw: &[RawSample],
-    ) -> Result<CalibrationReport, ExporterError> {
-        if raw.is_empty() {
-            return Err(ExporterError::NoSamples);
-        }
+    /// Creates an exporter using the configured risk threshold.
+    pub fn from_env() -> Self {
+        let threshold = std::env::var("STELLAR_CALIBRATION_RISK_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(DEFAULT_RISK_THRESHOLD);
+        Self::new(threshold)
+    }
 
-        let mut samples = Vec::new();
-        let mut ratio_sum = 0.0f64;
-        let mut high_risk_count = 0us;
-        let mut degraded_count = 0us;
+    /// Records a new calibration cycle.
+    ///
+/// This updates the exporter's internal state and recomputes the
+/// hardware capability ratios and fee scale factor.
+    pub fn record_cycle(&self, results: Vec<BenchmarkResult>) {
+        let mut state = self.latest.lock().expect("calibration exporter mutex poisoned");
 
-        for raw_sample in raw {
-            if raw_sample.durations.is_empty() {
-                return Err(ExporterError::InvalidSample(raw_sample.name.clone()));
+        state.results.clear();
+        let mut worst = 1.0f64;
+        for result in results {
+            let ratio = result.capability_ratio();
+            if ratio > worst {
+                worst = ratio;
             }
-
-            let baseline_ns = self.baseline_ns(&raw_sample.name).ok_or_else({
-                return Err(ExporterError::MissingBaseline(
-                    raw_sample.name.clone(),
-                ));
-            });
-
-            let mut min_ns = u64::MAX;
-            let mut max_ns = 0u64;
-            let mut total_ns = 0u128;
-            for d  in &raw_sample.durations {
-                let ns = d.as_nanos();
-                min_ns = min_ns.min(ns);
-                max_ns = max_ns.max(ns);
-                total_ns += ns as u128;
-            }
-
-            let iterations = raw_sample.durations.len() as u64;
-            let mean_ns = (total_ns / iterations as u128) as u64;
-            let slowness_ratio = mean_ns as f64 / baseline_ns as f64;
-            let risk = Self::classify_ratio(slowness_ratio);
-
-            match risk {
-                HardwareRisk::HighRisk => high_risk_count += 1,
-                HardwareRisk::Degraded => degraded_count += 1,
-                HardwareRisk::Healthy => {}
-            }
-            ratio_sum += slowness_ratio;
-
-            samples.push(HostFunctionSample {
-                name: raw_sample.name.clone(),
-                mean_ns,
-                min_ns,
-                max_ns,
-                iterations,
-                baseline_ns,
-                slowness_ratio,
-                risk,
-                gas_multiplier: Self::gas_multiplier(slowness_ratio),
-            });
+            state.results.insert(result.name.clone(), result);
         }
 
-        let mean_slowness_ratio = ratio_sum / samples.len() as f64;
-        let overall_risk = if high_risk_count > 0 {
-            HardwareRisk::HighRisk
-        } else if degraded_count > 0 {
-            HardwareRisk::Degraded
-        } else {
-            HardwareRisk::Healthy
-        };
-
-        Ok(CalibrationReport {
-            timestamp_secs,
-            hostname: hostname.into(),
-            samples,
-            overall_risk,
-            mean_slowness_ratio,
-            high_risk_flag: overall_risk == HardwareRisk::HighRisk,
-        })
+        state.worst_capability_ratio = worst;
+        state.hardware_at_risk = worst > self,risk_threshold;
+        // The fee scale factor is the worst ratio, clamped to a minimum of
+        // 1.0 so we never under-price relative to the network baseline.
+        state.fee_scale_factor = worst.max(1.0);
+        state.last_run_unix_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH))
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        state.cycles_total += 1;
     }
 
-    /// Render the report as a Prometheus-compatible exposition text block so
-    /// the Grafana dashboard can scrape it directly.
-    pub fn render_prometheus(report: &CalibrationReport) -> String {
+    /// Returns a clone of the current state.
+    pub fn snapshot(&self) -> State {
+        let state = self.latest.lock().expect("calibration exporter mutex poisoned");
+        State {
+            results: state.results.clone(),
+            last_run_unix_secs: state.last_run_unix_secs,
+            cycles_total: state.cycles_total,
+            hardware_at_risk: state.hardware_at_risk,
+            worst_capability_ratio: state.worst_capability_ratio,
+            fee_scale_factor: state.fee_scale_factor,
+        }
+    }
+
+    /// Renders the current state as a Prometheus text exposition.
+    pub fn render_prometheus(&self) -> String {
+        let state = self.snapshot();
         let mut out = String::new();
-        out.push_str(\"# HELP Soroban host function calibration metrics\n\");
-        out.push_str(\"# TYPE soroban_host_function_mean_nanoseconds gauge\n\");
-        out.push_str(\"# TYPE soroban_host_function_slowness_ratio gauge\n\");
-        out.push_str(\"# TYPE soroban_host_function_gas_multiplier gauge\n\");
-        out.push_str(\"# TYPE soroban_hardware_high_risk gauge\n\");
-        out.push_str(\"# TYPE soroban_hardware_mean_slowness_ratio gauge\n\");
 
-        for s in &report.samples {
-            out.push_str(&format!(
-                "soroban_host_function_mean_nanoseconds{function=\"{}\"} {}\n",
-                s.name, s.mean_ns
-            ));
-            out.push_str(&format!(
-                "soroban_host_function_slowness_ratio{function=\"{}\"} {}\n",
-                s.name, s.slowness_ratio
+        out.push_str("# HELP stellar_calibration_host_function_duration_nanoseconds Median execution time of a host function in nanoseconds.\n");
+        out.push_str("# TYPE stellar_calibration_host_function_duration_nanoseconds gauge\n");
+        out.push_str("# HELP stellar_calibration_capability_ratio Ratio of median execution time to the network baseline.\n");
+        out.push_str("# TYPE stellar_calibration_capability_ratio gauge\n");
+        out.push_str("# HELP stellar_calibration_hardware_risk 1 if the hardware is at risk of CPU exhaustion.\n");
+        out.push_str("# TYPE stellar_calibration_hardware_risk gauge\n");
+        out.push_str("# HELP stellar_calibration_fee_scale_factor Factor by which to scale the multi-dimensional fee settings.\n");
+        out.push_str("# TYPE stellar_calibration_fee_scale_factor gauge\n");
+        out.push_str("# HELP stellar_calibration_last_run_timestamp_seconds Unix timestamp of the last calibration cycle.\n");
+        out.push_str("# TYPE stellar_calibration_last_run_timestamp_seconds gauge\n");
+        out.push_str("# HELP stellar_calibration_cycles_total Total number of completed calibration cycles.\n");
+        out.push_str("# TYPE stellar_calibration_cycles_total counter\n");
+
+        for (name, result) in &state.results {
+            let dimension = dimension_label(result.dimension);
+            out.push_str(format!(
+                "stellar_calibration_host_function_duration_nanoseconds{function=\"{}\",dimension=\"{}\"} {}\n",
+                name, dimension, result.median_ns
             ));
             out.push_str(format!(
-                "soroban_host_function_gas_multiplier{function=\"{}\"} {}\n",
-                s.name, s.gas_multiplier
+                "stellar_calibration_capability_ratio{function=\"{}\",dimension=\"{}\"} {}\n",
+                name,
+                dimension,
+                result.capability_ratio()
             ));
         }
 
-        out.push_str(&format!(
-            "soroban_hardware_high_risk{host=\"{}\"} {}\n",
-            report.hostname,
-            if report.high_risk_flag { 1 } else { 0 }
+        out.push_str(format!(
+            "stellar_calibration_hardware_risk {}\n",
+            if state.hardware_at_risk { 1 } else { 0 }
         ));
-        out.push_str(&format!(
-            "soroban_hardware_mean_slowness_ratio{host=\"{}\"} {}\n",
-            report.hostname, report.mean_slowness_ratio
+        out.push_str(format!(
+            "stellar_calibration_fee_scale_factor {}\n",
+            state.fee_scale_factor
+        ));
+        out.push_str(format!(
+            "stellar_calibration_last_run_timestamp_seconds {}\n",
+            state.last_run_unix_secs
+        ));
+        out.push_str(format!(
+            "stellar_calibration_cycles_total {}\n",
+            state.cycles_total
         ));
 
         out
     }
 }
 
-#[cfg_test]
+fn dimension_label(dimension: ResourceDimension) -> &str {
+    match dimension {
+        ResourceDimension::Cpu => "cpu",
+        ResourceDimension::Memory => "memory",
+        ResourceDimension::LedgerIo => "ledger_io",
+    }
+}
+
+/// Runs a single calibration cycle and records the results in the exporter.
+///
+/// This is the function the sidecar binary calls periodically. The benchmark
+/// runs on the specified isolated CPU core.
+pub fn run_calibration_cycle(
+    exporter: &CalibrationExporter,
+    registry: &crate::calibration::host_functions::BenchmarkRegistry,
+    core_id: usize,
+) {
+    let results = registry.run_all(core_id);
+    exporter.record_cycle(results);
+}
+
+/// Returns the default calibration interval.
+///
+/// The interval can be overridden via the
+/// `STELLAR_CALIBRATION_INTERVAL_SECS` environment variable.
+pub fn calibration_interval() -> Duration {
+    let secs = std::env::var("STELLAR_CALIBRATION_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(60);
+    Duration::from_secs(secs)
+}
+
+/// Returns the isolated CPU core to use for benchmarking.
+///
+/// The core index can be overridden via the
+/// `STELLAR_CALIBRATION_CORE_ID` environment variable. Defaults to core 0.
+pub fn calibration_core_id() -> usize {
+    std::env::var("STELLAR_CALIBRATION_CORE_ID")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+/// Runs the calibration loop forever, updating the exporter on each cycle.
+///
+/// This is the main entry point for the sidecar binary. It runs until the
+/// process is terminated.
+pub async fn run_calibration_loop(exporter: Arc<CalibrationExporter>) {
+    let registry = crate::calibration::host_functions::BenchmarkRegistry::default_set();
+    let core_id = calibration_core_id();
+    let interval = calibration_interval();
+
+    loop {
+        run_calibration_cycle(&exporter, &registry, core_id);
+        tokio::time::sleep(interval).await;
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use crate::calibration::host_functions::BenchmarkResult;
 
-    fn sample(name: &str, durations_ns: &[u64]) -> RawSample {
-        RawSample {
+    fn make_result(name: &str, median_ns: u64, baseline_ns: u64) -> BenchmarkResult {
+        BenchmarkResult {
             name: name.to_string(),
-            durations: durations_ns
-                .iter()
-                .map(|ns| Duration::from_nanos(*ns))
-                .collect(),
-        }
-    }
-
-    fn timestamp() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    }
-
-    #[test]
-    fn healthy_hardware_reports_healthy_and_no_high_risk() {
-        let exporter = CalibrationExporter::new();
-        let raw = vec![
-            sample("host_fn_hash_sha256", &[1,500_000, 1,500_000, 1,500_000]),
-            sample("host_fn_ledger_read", &[800_000, 800_000, 800_000]),
-        ];
-        let report = exporter.export("test-healthy", timestamp(), &raw).unwrap();
-        assert_eq!(report.overall_risk, HardwareRisk::Healthy);
-        assert!(!report.high_risk_flag);
-        assert_eq!(report.samples.len(), 2);
-        assert_eq!(report.samples[0].gas_multiplier, 1.0);
-    }
-
-    #[test]
-    fn constrained_hardware_flags_high_risk() {
-        let exporter = CalibrationExporter::new();
-        // Sha256 takes 4x the baseline on this machine.
-        let raw = vec![sample(
-            "host_fn_hash_sha256",
-            &[6,000_000, 6,000_000, 6,000_000],
-        )];
-        let report = exporter.export("raspberry-pi", timestamp(), &raw).unwrap();
-        assert_eq(report.overall_risk, HardwareRisk::HighRisk);
-        assert!(report.high_risk_flag);
-        assert!(report.samples[0].gas_multiplier >= HIGH_RISK_RATIO);
-    }
-
-    #[test]
-    fn degraded_hardware_reports_degraded() {
-        let exporter = CalibrationExporter::new();
-        // 1.3 x the baseline.
-        let raw = vec![sample(
-            "host_fn_ledger_read",
-            &[1,040_000, 1,040_000, 1,040_000],
-        )];
-        let report = exporter.export("degraded", timestamp(), &raw).unwrap();
-        assert_eq(report.overall_risk, HardwareRisk::Degraded);
-        assert!(!report.high_risk_flag);
-    }
-
-    #[test]
-    fn missing_baseline_is_an_error() {
-        let exporter = CalibrationExporter::new();
-        let raw = vec![sample("unknown_host_fn", &[1],)];
-        match exporter.export("host", timestamp(), &raw) {
-            Err(ExporterError::MissingBaseline(name)) => assert_eq(name, "unknown_host_fn"),
-            other => panic!("unexpected result: {other:?}"),
+            dimension: ResourceDimension::Cpu,
+            median_ns,
+            min_ns: median_ns,
+            max_ns: median_ns,
+            iterations: 10,
+            baseline_ns:
         }
     }
 
     #[test]
-    fn no_samples_is_an_error() {
-        let exporter = CalibrationExporter::new();
-        match exporter.export("host", timestamp(), &[']) {
-            Err(ExporterError::NoSamples) => {}
-            other => panic!("unexpected result: {other:?}"),
-        }
+    fn exporter_flags_slow_hardware() {
+        let exporter = CalibrationExporter::new(2.0);
+        // Hardware is 5x slower than the baseline.
+        exporter.record_cycle(vec![make_result("crypto_sha256", 50,000)]);
+        let state = exporter.snapshot();
+        assert!(state.hardware_at_risk);
+        assert!(state.fee_scale_factor >= 5.0);
     }
 
-    #[test]
-    fn register_baseline_overrides_default() {
-        let mut exporter = CalibrationExporter::new();
-        exporter.register_baseline("host_fn_hash_sha256", 3_000_000);
-        assert_eq(exporter.baseline_ns("host_fn_hash_sha256"), Some(3_000_000));
+    #test]
+    fn exporter_does_not_flag_fast_hardware() {
+        let exporter = CalibrationExporter::new(2.0);
+        exporter.record_cycle(vec![make_result("crypto_sha256", 5,000)]);
+        let state = exporter.snapshot();
+        assert!(!state.hardware_at_risk);
+        assert_eq(state.fee_scale_factor, 1.0);
     }
 
-    #[test]
-    fn prometheus_rendering_contains_expected_metrics() {
-        let exporter = CalibrationExporter::new();
-        let raw = vec![sample(
-            "host_fn_hash_sha256",
-            &[6,000_000, 6,000_000, 6,000_000],
-        )];
-        let report = exporter.export("raspberry-pi", timestamp(), &raw).unwrap();
-        let text = CalibrationExporter::render_prometheus(&report);
-        assert!(text.contains("soroban_host_function_mean_nanoseconds"));
-        assert!(text.contains("soroban_hardware_high_risk{host=\"raspberry-pi\"} 1"));
+    #test]
+    fn prometheus_output_contains_metrics() {
+        let exporter = CalibrationExporter::new(2.0);
+        exporter.record_cycle(vec![make_result("crypto_sha256", 50,000)]);
+        let out = exporter.render_prometheus();
+        assert!(out.contains("stellar_calibration_host_function_duration_nanoseconds"));
+        assert!(out.contains("stellar_calibration_hardware_risk 1"));
     }
 }

@@ -243,3 +243,70 @@ spec:
             summary: "Rate limit check p99 exceeds the 1ms budget"
             description: "p99 check latency is {{ `{{ $value | humanizeDuration }}` }}, above the 1ms budget."
 {{- end }}
+{{- if (and .Values.monitoring .Values.monitoring.enabled .Values.monitoring.prometheusRule.enabled .Values.monitoring.prometheusRule.hostFunctionCalibrationAlerts) }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "stellar-operator.fullname" . }}-host-function-calibration
+  labels:
+    {{- include "stellar-operator.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: stellar.host_function.calibration.recording
+      interval: 30s
+      rules:
+        - record: stellar:host_function_execution_seconds_p50
+          expr: histogram_quantile(0.50, sum by (le, host_function) (rate(stellar_host_function_execution_seconds_bucket[5m])))
+        - record: stellar:host_function_execution_seconds_p99
+          expr: histogram_quantile(0.99, sum by (le, host_function) (rate(stellar_host_function_execution_seconds_bucket[5m])))
+        - record: stellar:host_function_calibration_ratio
+          expr: stellar_host_function_execution_seconds / clamp_min(stellar_host_function_baseline_seconds, 1e-9)
+        - record: stellar:host_function_calibration_ratio_max
+          expr: max by (node_name) (stellar:host_function_calibration_ratio)
+    - name: stellar.host_function.calibration.alerts
+      rules:
+        - alert: StellarHostFunctionCalibrationDrift
+          expr: stellar:host_function_calibration_ratio > {{ .Values.monitoring.prometheusRule.hostFunctionCalibrationAlerts.driftThresholdRatio | default 1.5 }}
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Host function {{ `{{ $labels.host_function }}` }} is slower than network baseline"
+            description: "{{ `{{ $labels.host_function }}` }} on {{ `{{ $labels.node_name }}` }} is running at {{ `{{ $value | humanize }}` }}x the calibrated baseline."
+            runbook_url: "https://docs.stellar.org/runbooks/host-function-calibration-drift"
+        - alert: StellarHostFunctionCalibrationHighRisk
+          expr: stellar:host_function_calibration_ratio_max > {{ .Values.monitoring.prometheusRule.hostFunctionCalibrationAlerts.highRiskThresholdRatio | default 3.0 }}
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Node {{ `{{ $labels.node_name }}` }} is high-risk for CPU exhaustion"
+            description: "Host function calibration ratio is {{ `{{ $value | humanize }}` }}x baseline. Hardware is underperforming against the network baseline and may exhaust validator CPU."
+            runbook_url: "https://docs.stellar.org/runbooks/host-function-calibration-high-risk"
+        - alert: StellarHostFunctionCalibratorStale
+          expr: time() - stellar_host_function_calibration_timestamp_seconds > {{ .Values.monitoring.prometheusRule.hostFunctionCalibrationAlerts.stalenessSeconds | default 300 }}
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Host function calibrator on {{ `{{ $labels.node_name }}` }} has not reported recently"
+            description: "No calibration samples received for more than {{ .Values.monitoring.prometheusRule.hostFunctionCalibrationAlerts.stalenessSeconds | default 300 }}s. Verify the sidecar is running on isolated CPU cores."
+            runbook_url: "https://docs.stellar.org/runbooks/host-function-calibrator-stale"
+        - alert: StellarHostFunctionCalibratorCpuContention
+          expr: rate(stellar_host_function_calibration_cpu_steal_seconds_total[5m]) > {{ .Values.monitoring.prometheusRule.hostFunctionCalibrationAlerts.cpuStealThresholdSeconds | default 0.05 }}
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Calibrator on {{ `{{ $labels.node_name }}` }} is experiencing CPU contention"
+            description: "CPU steal on the isolated calibration cores is {{ `{{ $value | humanizeDuration }}` }}/s, which may invalidate calibration results."
+            runbook_url: "https://docs.stellar.org/runbooks/host-function-calibrator-cpu-contention"
+{{- end }}

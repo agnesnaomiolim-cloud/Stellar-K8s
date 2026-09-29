@@ -253,41 +253,6 @@ featureFlags:
   enableArchiveHealth: true
   enableSorobanMetrics: false
 
-# Dynamic Host Function Pricing Calibrator
-# Sidecar that benchmarks Soroban host functions on isolated CPU cores and
-# exports calibrated pricing metrics for Grafana dashboards.
-hostFunctionCalibrator:
-  enabled: false
-  image:
-    repository: ghcr.io/stellar/stellar-k8s
-    tag: ""
-    pullPolicy: IfNotPresent
-  # Isolated CPU cores reserved for benchmarking (cpuset notation).
-  isolatedCpus: "2-3"
-  # Benchmark interval in seconds.
-  intervalSecs: 300
-  # Number of benchmark iterations per host function.
-  iterations: 1000
-  # Host functions to benchmark (e.g. hashing, ledger reads).
-  hostFunctions:
-    - "crypto_sha256"
-    - "crypto_ed25519_verify"
-    - "ledger_get"
-    - "ledger_put"
-  # Baseline execution time (microseconds) for network reference hardware.
-  baselineMicros: 100
-  # Threshold multiplier above baseline to flag high-risk CPU exhaustion.
-  highRiskThreshold: 2.0
-  # Prometheus metrics port for the exporter.
-  metricsPort: 9103
-  resources:
-    limits:
-      cpu: 500m
-      memory: 128Mi
-    requests:
-      cpu: 100m
-      memory: 64Mi
-
 costOptimization:
   resourceTracking:
     enabled: false
@@ -298,13 +263,6 @@ costOptimization:
     maxPricePerHourUsd: "0"
     fallbackToOnDemand: true
   monthlyBudgetUsd: 0
-
-# Grafana dashboard template for host function execution speeds over time.
-# See monitoring/host-function-calibrator-dashboard.json
-hostFunctionCalibratorDashboard:
-  enabled: false
-  grafanaDashboardLabel: "grafana_dashboard"
-  namespace: "monitoring"
 
 # Validator key rotation daemon. Disabled by default; when enabled the operator
 # rotates only Validator seed sources backed by supported external Secret Managers.
@@ -466,6 +424,88 @@ byzantineWatcher:
   #     region: dc-frankfurt
   #     nodeEndpoint: http://10.0.1.50:11626
   regions: []
+
+# Dynamic Host Function Pricing Calibrator
+#
+# Deploys a sidecar that continuously benchmarks core Soroban host functions
+# (cryptographic hashing, ledger reads, asset transfers) on isolated CPU cores
+# and maps the measured execution speeds against the multi-dimensional fee
+# settings in stellar-core. Calibrated pricing metrics are exported to
+# Prometheus so Grafana dashboards can flag hardware that underperforms the
+# network baseline and is at risk of CPU exhaustion.
+#
+# See telemetry/src/calibration/host_functions.rs and
+# telemetry/src/calibration/exporter.rs for the implementation.
+hostFunctionCalibrator:
+  # Master switch. Set to true to deploy the calibrator sidecar.
+  enabled: false
+
+  # Container image for the calibrator binary.
+  # Defaults to the same image as the operator when left empty.
+  image:
+    repository: ""   # defaults to .Values.image.repository
+    tag: ""          # defaults to .Values.image.tag / chart appVersion
+    pullPolicy: IfNotPresent
+
+  # Benchmark loop interval in seconds.
+  intervalSecs: 60
+
+  # Number of samples to average per host function before exporting.
+  sampleWindow: 10
+
+  # Isolated CPU cores reserved for benchmarking. These cores are excluded
+  # from the live consensus workload so calibration never interferes with
+  # Byzantine Fault Tolerant execution.
+  isolatedCpus: "2-3"
+
+  # CPU affinity mask applied to the calibrator process (cpuset format).
+  cpuAffinity: "2-3"
+
+  # Host functions to benchmark. Each entry maps to a Soroban host function
+  # whose execution time is measured and compared against the network baseline.
+  hostFunctions:
+    - name: "sha256"
+      weight: 1.0
+    - name: "ed25519_verify"
+      weight: 1.0
+    - name: "ledger_read"
+      weight: 1.0
+    - name: "ledger_write"
+      weight: 1.0
+    - name: "asset_transfer"
+      weight: 1.0
+
+  # Baseline execution times (microseconds) published by the network.
+  # Measured values are divided by these to produce a calibration ratio.
+  baselineMicros:
+    sha256: 5
+    ed25519_verify: 40
+    ledger_read: 20
+    ledger_write: 30
+    asset_transfer: 60
+
+  # Ratio above which the hardware is flagged as high-risk for CPU exhaustion.
+  riskThreshold: 1.5
+
+  # Prometheus metrics port for the calibrator exporter.
+  metricsPort: 9103
+
+  # Log level for the calibrator.
+  logLevel: "info"
+
+  # Resource requests/limits for the calibrator sidecar.
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+  # Grafana dashboard template mapping host function execution speeds over time.
+  dashboard:
+    enabled: true
+    configMapName: "stellar-host-function-calibrator-dashboard"
 
 # OpenTelemetry configuration
 # Controls OTLP trace export from the operator and the bundled OTel Collector.
