@@ -1,0 +1,31 @@
+/*
+ * Soroban Auth Hierarchy Builder — Global Styles
+ *
+ * Design system mirrors the topology configurator:
+ *   - Dark background: #0b1119
+ *   - Space Grotesk for UI text
+ *   - DM Mono for code / JSON output
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #0b1119;
+  color: #e8edf2;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+button {
+  font-family: inherit;
+}
