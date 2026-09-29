@@ -77,6 +77,11 @@ use super::disk_scaler;
 use super::dr;
 use super::dr_drill;
 use super::finalizers::STELLAR_NODE_FINALIZER;
+use super::lifecycle::finalizers::{
+    is_cleanup_deadline_exceeded, shutdown_stellar_core_with_timeout, LifecycleTrace, ShutdownConfig,
+    CLEANUP_ABSOLUTE_CEILING_SECS,
+};
+use super::storage::gc::{run_pvc_gc_loop, GcConfig};
 use super::health;
 use super::kms_secret;
 use super::label_propagation::LabelPropagator;
@@ -575,6 +580,20 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
                 error!("Validator Key Rotation daemon stopped with error: {}", e);
             }
         });
+    }
+
+    // Start the PVC garbage-collection scanner (issue #304).
+    // Proactively removes PVCs left behind after StellarNode deletion when
+    // retentionPolicy is Delete. Runs every 5 minutes by default.
+    {
+        let gc_client = client.clone();
+        let gc_namespace = state.watch_namespace.clone();
+        let gc_dry_run = state.dry_run;
+        tokio::spawn(async move {
+            let cfg = GcConfig::default().dry_run_if(gc_dry_run);
+            run_pvc_gc_loop(gc_client, cfg, gc_namespace).await;
+        });
+        info!("PVC GC scanner background task started (issue #304)");
     }
 
     Controller::new(stellar_nodes, Config::default())
@@ -3390,6 +3409,67 @@ pub(crate) fn cleanup_stellar_node(
 
         // Delete resources in reverse order of creation
 
+        // ── Pre-delete: gracefully shut down stellar-core before any PVC is
+        // unbound, so the database can flush cleanly (issue #304).
+        // A hard timeout prevents this from blocking namespace deletion.
+        let cleanup_started = std::time::Instant::now();
+        let shutdown_cfg = ShutdownConfig {
+            dry_run: ctx.dry_run,
+            ..ShutdownConfig::default()
+        };
+        let mut lifecycle_trace = LifecycleTrace::new();
+        match shutdown_stellar_core_with_timeout(&client, &node, shutdown_cfg).await {
+            Ok(result) => {
+                if result.had_forced_terminations() {
+                    warn!(
+                        node = %name,
+                        namespace = %namespace,
+                        "stellar-core did not exit cleanly; pods were force-terminated before PVC unbind",
+                    );
+                    lifecycle_trace.record_failed(
+                        "pod-shutdown",
+                        "one or more pods required forced termination",
+                    );
+                } else {
+                    info!(
+                        node = %name,
+                        namespace = %namespace,
+                        "stellar-core shutdown complete; proceeding to resource cleanup",
+                    );
+                    lifecycle_trace.record_ok("pod-shutdown");
+                }
+            }
+            Err(e) => {
+                // Log and continue — a shutdown failure must not prevent
+                // Kubernetes resources from being cleaned up.
+                warn!(
+                    node = %name,
+                    namespace = %namespace,
+                    error = %e,
+                    "stellar-core shutdown step failed; continuing cleanup",
+                );
+                lifecycle_trace.record_failed("pod-shutdown", e.to_string());
+            }
+        }
+
+        // Absolute ceiling guard — if cleanup is already taking too long,
+        // skip remaining steps and let the finalizer be removed so the
+        // namespace does not hang (issue #304).
+        if is_cleanup_deadline_exceeded(
+            cleanup_started,
+            std::time::Duration::from_secs(CLEANUP_ABSOLUTE_CEILING_SECS),
+        ) {
+            warn!(
+                node = %name,
+                namespace = %namespace,
+                ceiling_secs = CLEANUP_ABSOLUTE_CEILING_SECS,
+                "cleanup absolute ceiling exceeded; removing finalizer to prevent namespace hang",
+            );
+            lifecycle_trace.record_failed("absolute-ceiling", "deadline exceeded");
+            lifecycle_trace.log(&name, &namespace);
+            return Ok(Action::await_change());
+        }
+
         // 0a. Delete Managed Database Resources
         apply_or_emit!(&ctx, &node, ActionType::Delete, "Managed Database", move |client: Client, ctx: Arc<ControllerState>, node: Arc<StellarNode>| async move {
             if let Err(e) = resources::delete_cnpg_resources(&client, &node, ctx.dry_run).await {
@@ -3529,13 +3609,17 @@ pub(crate) fn cleanup_stellar_node(
                 Ok(())
             })
             .await?;
+            lifecycle_trace.record_ok("pvc-delete");
         } else {
             info!(
                 "Retaining PVC for node: {}/{} (retention policy: Retain)",
                 namespace, name
             );
+            lifecycle_trace.record_ok("pvc-retain");
         }
 
+        lifecycle_trace.record_ok("k8s-resources-deleted");
+        lifecycle_trace.log(&name, &namespace);
         info!("Cleanup complete for StellarNode: {}/{}", namespace, name);
 
         // Return await_change to signal finalizer completion

@@ -16,6 +16,7 @@ pub mod horizon_scaler;
 pub mod jurisdiction;
 pub mod label_propagation;
 pub mod leader;
+pub mod lifecycle;
 pub mod maintenance;
 pub mod migration;
 pub mod ml_pipeline;
@@ -62,6 +63,8 @@ pub mod dr_drill;
 [cfg(test)]
 mod dr_test;
 pub(crate) mod finalizers;
+#[cfg(test)]
+mod finalizer_gc_test;
 pub(crate) mod forensic_snapshot;
 pub(crate) mod health;
 
@@ -99,6 +102,7 @@ mod csi_snapshot;
 pub mod snapshot;
 pub mod snapshot_worker;
 pub mod spot_drain;
+pub mod storage;
 pub mod storage_migration;
 pub(crate) mod sync_scale;
 pub(crate) mod sync_state_monitor;
@@ -203,4 +207,17 @@ pub use topology::{
     build_statefulset_patch, discover_cluster_topology, enforce_namespace, enforce_on_statefulset,
     ClusterTopology, EnforcementResult, TopologyMode, TopologyRuleSet, TopologySpreadConstraint,
     WhenUnsatisfiable,
+};
+
+// Lifecycle management — enhanced finalizer with timeout + graceful shutdown (issue #304)
+pub use lifecycle::finalizers::{
+    is_cleanup_deadline_exceeded, shutdown_stellar_core_with_timeout, LifecycleStep, LifecycleTrace,
+    ShutdownConfig, ShutdownOutcome, ShutdownResult, CLEANUP_ABSOLUTE_CEILING_SECS,
+    DEFAULT_SHUTDOWN_TIMEOUT_SECS, TEARDOWN_ANNOTATION_KEY,
+};
+
+// Storage garbage collection — orphaned PVC scanner (issue #304)
+pub use storage::gc::{
+    run_pvc_gc_loop, scan_and_collect, GcConfig, GcReport, PvcDisposition, PvcScanEntry,
+    RETENTION_POLICY_ANNOTATION,
 };
