@@ -1,0 +1,473 @@
+:root {
+  --bg-0: #04070d;
+  --bg-1: #0a101c;
+  --panel: rgba(10, 16, 28, 0.92);
+  --border: rgba(90, 130, 190, 0.25);
+  --text-0: #e8eef7;
+  --text-1: #9fb0c8;
+  --text-2: #6b7d95;
+  --accent: #4da3ff;
+  --direct: #2ecc71;
+  --indirect: #4da3ff;
+  --missing: #e74c3c;
+  --warning: #f39c12;
+  --font-mono: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-size: 13px;
+}
+
+/* ── Loading / error overlay ─────────────────────────────── */
+.topology-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bg-0);
+  z-index: 50;
+  transition: opacity 0.4s ease;
+}
+
+.topology-overlay--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.topology-overlay__ring {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 3px solid rgba(77, 163, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: topology-spin 0.9s linear infinite;
+}
+
+@keyframes topology-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.topology-overlay__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.topology-overlay__sub {
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+/* ── HUD / stats corner ──────────────────────────────────── */
+.topology-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.topology-hud__stats {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 180px;
+  backdrop-filter: blur(6px);
+}
+
+.topology-hud__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+
+.topology-hud__row b {
+  color: var(--text-0);
+  font-weight: 600;
+}
+
+.topology-hud__row b.is-good {
+  color: var(--direct);
+}
+
+.topology-hud__row b.is-warn {
+  color: var(--warning);
+}
+
+.topology-hud__row b.is-bad {
+  color: var(--missing);
+}
+
+/* ── Legend ──────────────────────────────────────────────── */
+.topology-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  backdrop-filter: blur(6px);
+  user-select: none;
+}
+
+.topology-legend__title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  margin-bottom: 2px;
+}
+
+.topology-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+
+.topology-legend__swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.topology-legend__swatch--sphere {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* ── Controls help ───────────────────────────────────────── */
+.topology-help {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.7;
+  backdrop-filter: blur(6px);
+  user-select: none;
+}
+
+.topology-help b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/* ── Node metadata panel ─────────────────────────────────── */
+.node-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  width: 320px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  backdrop-filter: blur(8px);
+  animation: node-panel-in 0.18s ease;
+}
+
+@keyframes node-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.node-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.node-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.node-panel__close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.node-panel__close:hover {
+  color: var(--text-0);
+  border-color: var(--accent);
+}
+
+.node-panel__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.node-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  letter-spacing: 0.03em;
+}
+
+.node-badge--critical {
+  color: var(--missing);
+  border-color: rgba(231, 76, 60, 0.5);
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.node-badge--hub {
+  color: var(--warning);
+  border-color: rgba(243, 156, 18, 0.5);
+  background: rgba(243, 156, 18, 0.1);
+}
+
+.node-badge--ok {
+  color: var(--direct);
+  border-color: rgba(46, 204, 113, 0.4);
+  background: rgba(46, 204, 113, 0.08);
+}
+
+.node-panel__section {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.node-panel__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.node-panel__kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.8;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.node-panel__kv b {
+  color: var(--text-0);
+  font-weight: 600;
+}
+
+.node-panel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.node-panel__list li {
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(90, 130, 190, 0.12);
+  word-break: break-all;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────── */
+.topology-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  backdrop-filter: blur(6px);
+  user-select: none;
+}
+
+.topology-toolbar__btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.topology-toolbar__btn:hover {
+  color: var(--text-0);
+  border-color: var(--accent);
+}
+
+.topology-toolbar__btn.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, 0.08);
+}
+
+.topology-toolbar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+
+.topology-toolbar__status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 0 4px;
+}
+
+.topology-toolbar__status.is-live {
+  color: var(--direct);
+}
+
+/* ── FPS meter ───────────────────────────────────────────── */
+.fps-meter {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 42px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  user-select: none;
+  cursor: default;
+}
+
+.fps-meter__bar {
+  width: 4px;
+  border-radius: 1px;
+  background: var(--accent);
+  min-height: 1px;
+  transition: height 0.08s linear;
+}
+
+.fps-meter__bar.is-warn {
+  background: var(--warning);
+}
+
+.fps-meter__bar.is-bad {
+  background: var(--missing);
+}
+
+.fps-meter__label {
+  align-self: center;
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  min-width: 70px;
+}
+
+.fps-meter__label b {
+  color: var(--text-0);
+}
+
+.fps-meter__label b.is-warn {
+  color: var(--warning);
+}
+
+.fps-meter__label b.is-bad {
+  color: var(--missing);
+}
+
+/* ── Scrollbars ──────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(90, 130, 190, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(90, 130, 190, 0.5);
+}

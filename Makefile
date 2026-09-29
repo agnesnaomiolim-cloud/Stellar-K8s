@@ -1,4 +1,4 @@
-.PHONY: help build test fmt fmt-check lint clean docker-build install-crd apply-samples dev-setup ci-local benchmark benchmark-upgrade benchmark-webhook benchmark-webhook-health benchmark-webhook-compare benchmark-webhook-save benchmark-all run-dev helm-lint crd-gen run-local compose-up compose-dev compose-down compose-logs quickstart
+.PHONY: help build test fmt fmt-check lint clean docker-build install-crd apply-samples dev-setup ci-local benchmark benchmark-upgrade benchmark-webhook benchmark-webhook-health benchmark-webhook-compare benchmark-webhook-save benchmark-all run-dev helm-lint crd-gen run-local compose-up compose-dev compose-down compose-logs quickstart topology-dev topology-build topology-test topology-bench topology-clean
 
 # Default target
 .DEFAULT_GOAL := help
@@ -137,6 +137,21 @@ dev-setup: ## Setup dev environment
 
 watch: ## Watch and rebuild
 	cargo watch -x check -x test -x build
+
+topology-dev: ## Run the quorum topology visualizer dev server
+	cd frontend && npm install && npm run dev
+
+topology-build: ## Build the topology visualizer for production
+	cd frontend && npm ci && npm run build
+
+topology-test: ## Run topology visualizer unit tests + FPS budget gate
+	cd frontend && npm ci && npm test
+
+topology-bench: ## Run topology visualizer performance benchmark (writes benchmarks/topology-visualizer/RESULTS.md)
+	cd frontend && npm ci && npm run bench
+
+topology-clean: ## Clean topology visualizer build artifacts
+	rm -rf frontend/node_modules frontend/dist frontend/tests/compiled
 
 benchmark: ## Run k6 performance benchmarks
 	@echo "→ Running k6 benchmarks..."

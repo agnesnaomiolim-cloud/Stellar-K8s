@@ -21,6 +21,7 @@ Designed for high availability, type safety, and minimal footprint.
 - **🏥 Auto-Sync Health Checks**: Automatically monitors Horizon and Soroban RPC nodes, only marking them Ready when fully synced with the network.
 - **💾 Proactive Disk Scaling**: Automatically expands EBS/GCP volumes as the ledger grows, preventing 'Disk Full' outages without manual intervention.
 - **📊 Real-time SCP Analytics**: High-throughput streaming of SCP messages to Kafka for network topology analysis and quorum health monitoring.
+- **🌐 WebGL Quorum Topology Visualizer**: Interactive 3D visualization of the FBA trust graph — direct/indirect/missing trust edges, single-point-of-failure detection, and live WebSocket updates at 60 FPS for 2,000+ nodes. See the [Topology Visualizer guide](docs/topology-visualizer.md).
 - **📈 Multi-Cluster Comparison**: CLI tool for comparing performance metrics (TPS, Ledger Time) between clusters in real-time with HTML/JSON reports.
 - **GitOps Ready**: Fully compatible with ArgoCD and Flux for declarative infrastructure management.
 - **📈 Observable by Default**: Native Prometheus metrics integration for monitoring node health, ledger sync status, and resource usage.
@@ -610,6 +611,11 @@ make clean         # Clean build artifacts
 
 # Full CI validation
 make ci-local
+
+# Quorum topology visualizer (frontend)
+make topology-dev     # dev server
+make topology-test    # unit tests + 60 FPS budget gate
+make topology-bench   # performance benchmark report
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines.

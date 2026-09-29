@@ -1,0 +1,5 @@
+node_modules/
+dist/
+tests/compiled/
+*.local
+.DS_Store
