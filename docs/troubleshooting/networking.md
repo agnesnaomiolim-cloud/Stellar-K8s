@@ -8,10 +8,16 @@ This guide covers the most common networking failures when running Stellar nodes
 
 | Port  | Protocol | Purpose                                      |
 |-------|----------|----------------------------------------------|
+| 3510  | TCP      | SDF testnet core peer port (testnet P2P)     |
 | 11625 | TCP      | Stellar Core P2P (peer-to-peer SCP traffic)  |
 | 11626 | TCP      | Stellar Core HTTP admin / Horizon ingest URL |
 | 8000  | TCP      | Horizon REST API                             |
 | 9100  | TCP      | Prometheus metrics (if enabled)              |
+
+> **Testnet validators must allow outbound TCP to both 3510 and 11625.** Missing egress to these
+> peer ports is the most common cause of a validator stuck in `Joining SCP` with zero peers —
+> see [Section 6.5](#65-validator-stuck-in-joining-scp-with-zero-peers) and the
+> [port requirements guide](../networking.md).
 
 ---
 
@@ -173,6 +179,10 @@ kubectl get configmap stellar-peers -n stellar-system -o jsonpath='{.data.peers\
 kubectl exec -n <namespace> <validator-pod> -- \
   curl -s http://localhost:11626/peers | jq '.authenticated_peers'
 ```
+
+If the peer list is empty and the node is stuck in `Joining SCP`, jump to
+[Section 6.5](#65-validator-stuck-in-joining-scp-with-zero-peers) — that failure mode is caused by
+blocked egress to the peer ports (3510/11625), not by a peer-list problem.
 
 ### 3.4 Test P2P reachability between two validators
 
@@ -346,10 +356,18 @@ Validators need outbound access to:
 
 | Destination | Port | Purpose |
 |---|---|---|
+| SDF testnet cores (`core-testnet*.stellar.org`) | 3510 TCP | SCP consensus with SDF testnet (testnet only) |
+| SDF testnet cores (`core-testnet*.stellar.org`) | 11625 TCP | SCP consensus (testnet peer port) |
 | Other validators (cluster-internal) | 11625 TCP | SCP consensus |
 | Other validators (external) | 11625 TCP | SCP consensus with external peers |
 | History archive servers | 443 TCP | Ledger history sync |
 | Kubernetes DNS | 53 UDP/TCP | Service name resolution |
+
+**Mainnet vs testnet:** the peer destinations differ per network. Testnet validators must reach the
+SDF testnet cores on **both 3510 and 11625**; mainnet validators only need **11625** to their peers
+and should keep 3510 closed. The `stellar.org/network` namespace label enforces this separation —
+see [Network Isolation](../network-isolation.md) and the
+[port requirements guide](../networking.md#mainnet-vs-testnet-destinations).
 
 ### 6.2 Required inbound connections to validators
 
@@ -378,6 +396,49 @@ nc -zv <external-ip-of-validator> 11625
 kubectl run -it --rm netdebug --image=nicolaka/netshoot --restart=Never -- \
   nc -zv stellar1.example.com 11625
 ```
+
+### 6.5 Validator stuck in `Joining SCP` with zero peers
+
+**Symptom:** the pod is `Running` and readiness checks pass, but Stellar Core sits in
+`Joining SCP` indefinitely and the peer list is empty. This almost always means **outbound
+tcp/3510 and tcp/11625 egress is blocked** — the node cannot dial any peer, so it can never join
+consensus.
+
+Map the kubectl-visible state to the egress failure:
+
+| What you see | What it means |
+|---|---|
+| `kubectl get stellarnode <name> -o jsonpath='{.status.syncState}'` returns `Unknown` for a long time | Core is in a transitional state (`Booting` / `Joining SCP`) because it has no peers |
+| `kubectl exec <pod> -- curl -s localhost:11626/peers` shows an empty `authenticated_peers` | No outbound peer connection succeeded |
+| Core logs repeat `Failed to connect to peer` / `too few peers connected (0/7)` | Destination peer ports are filtered |
+| Connection succeeds then drops mid-handshake | Asymmetric firewall — outbound allowed, return path blocked |
+
+Confirm the missing egress:
+
+```bash
+# From a debug pod, test both testnet peer ports
+kubectl run -it --rm netdebug --image=nicolaka/netshoot --restart=Never -- \
+  nc -zv core-testnet1.stellar.org 3510
+kubectl run -it --rm netdebug --image=nicolaka/netshoot --restart=Never -- \
+  nc -zv core-testnet1.stellar.org 11625
+```
+
+If either port times out, fix egress before debugging anything else:
+
+1. Open outbound TCP 3510 and 11625 in the **cloud security group / NSG / VPC firewall** for the
+   worker nodes (NetworkPolicies cannot grant cloud-level egress).
+2. Ensure default-deny **NetworkPolicies** (namespace-level and any Calico/Cilium cluster-wide
+   policies) explicitly allow egress to both ports — see [Section 2.1](#21-check-networkpolicies).
+3. Verify a NAT route exists from the node subnet; SNAT through a NAT gateway is fine.
+4. Re-run the `nc -zv` checks, then restart the validator and confirm peers connect:
+
+```bash
+kubectl exec -n <namespace> <validator-pod> -- \
+  curl -s http://localhost:11626/peers | jq '.authenticated_peers'
+```
+
+For the full port table and firewall/NAT guidance, see the
+[port requirements guide](../networking.md).
 
 ---
 
@@ -481,6 +542,7 @@ Before opening a support issue, collect:
 
 ## Related Documentation
 
+- [Networking: Ports, Egress, and Firewall Requirements](../networking.md)
 - [Ingress Configuration Guide](../ingress-guide.md)
 - [Peer Discovery](../peer-discovery.md)
 - [mTLS Guide](../mtls-guide.md)
