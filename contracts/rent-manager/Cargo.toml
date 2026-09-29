@@ -1,0 +1,23 @@
+[package]
+name = "rent-manager"
+version = "0.1.0"
+edition = "2021"
+description = "State archival & rent restoration manager for Stellar Soroban contracts"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+testutils = [
+    "soroban-sdk/testutils",
+]
+
+[dependencies]
+soroban-sdk = { version = "21.0.0", features = ["alloc"] }
+soroban-env = "21.0.0"
+
+[depdevelopment-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils", "alloc"] }
