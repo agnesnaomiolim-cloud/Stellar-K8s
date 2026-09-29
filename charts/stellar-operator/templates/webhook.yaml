@@ -35,7 +35,7 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list", "watch"]
-  # Read WASM plugin ConfigMaps for dynamic policy loading
+  # Read WASM plugin bundles stored as ConfigMaps
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
@@ -94,6 +94,9 @@ spec:
             - "--metrics-port={{ .Values.webhook.metricsPort | default 9090 }}"
             - "--cert-dir=/certs"
             - "--wasm-plugin-dir=/plugins"
+            - "--wasm-timeout-ms={{ .Values.webhook.wasm.timeoutMs | default 5000 }}"
+            - "--wasm-memory-limit-mb={{ .Values.webhook.wasm.memoryLimitMb | default 64 }}"
+            - "--wasm-failure-policy={{ .Values.webhook.wasm.failurePolicy | default "Fail" }}"
           ports:
             - name: https
               containerPort: {{ .Values.webhook.port | default 8443 }}
@@ -103,11 +106,6 @@ spec:
               protocol: TCP
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
           resources:
             {{- toYaml .Values.webhook.resources | nindent 12 }}
           livenessProbe:
@@ -131,10 +129,13 @@ spec:
             - name: plugins
               mountPath: /plugins
               readOnly: true
-            - name: wasm-cache
-              mountPath: /var/cache/wasm
-            - name: tmp
-              mountPath: /tmp
+          env:
+            - name: WASM_PLUGIN_CONFIG
+              value: "/plugins/plugins.json"
+            - name: WASM_MAX_CONCURRENT_EXECUTIONS
+              value: {{ .Values.webhook.wasm.maxConcurrentExecutions | default 4 | quote }}
+            - name: WASM_EPOCH_INTERRUPT_TICKS
+              value: {{ .Values.webhook.wasm.epochInterruptTicks | default 100000 | quote }}
       volumes:
         - name: certs
           secret:
@@ -143,14 +144,7 @@ spec:
           configMap:
             name: stellar-webhook-plugins
             optional: true
-        - name: wasm-cache
-          emptyDir:
-            medium: Memory
-            sizeLimit: {{ .Values.webhook.wasmCacheSizeLimit | default "64Mi" }}
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: {{ .Values.webhook.tmpSizeLimit | default "16Mi" }}
+      terminationGracePeriodSeconds: {{ .Values.webhook.terminationGracePeriodSeconds | default 30 }}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -222,11 +216,6 @@ webhooks:
     sideEffects: None
     timeoutSeconds: {{ .Values.webhook.timeoutSeconds | default 10 }}
     failurePolicy: {{ .Values.webhook.failurePolicy | default "Fail" }}
-    # Fail-open/fail-closed routing: when the WASM plugin cannot be loaded
-    # or exceeds the execution timeout, the operator will honor failurePolicy.
-    # Set failurePolicy to "Ignore" for fail-open behavior, "Fail" for fail-closed.
-    matchPolicy: Equivalent
-    reinvocationPolicy: IfNeeded
     matchPolicy: Equivalent
     namespaceSelector:
       matchExpressions:
@@ -236,6 +225,7 @@ webhooks:
           values:
             - kube-system
             - stellar-webhook
+    reinvocationPolicy: IfNeeded
 {{- if .Values.webhook.certManager.enabled }}
 ---
 # Certificate for the webhook (cert-manager)
@@ -279,14 +269,14 @@ data:
   # Each entry should be a JSON file with the plugin config
   plugins.json: |
     {
-      "plugins": []
+      "plugins": [],
+      "settings": {
+        "timeoutMs": {{ .Values.webhook.wasm.timeoutMs | default 5000 }},
+        "memoryLimitMb": {{ .Values.webhook.wasm.memoryLimitMb | default 64 }},
+        "failurePolicy": "{{ .Values.webhook.wasm.failurePolicy | default "Fail" }}",
+        "allowedRegistries": {{ .Values.webhook.wasm.allowedRegistries | default (list "docker.io" "ghcr.io" "quay.io") | toJson }}
+      }
     }
-  # WASM plugin binaries are loaded from this ConfigMap at runtime.
-  # Each key must be a .wasm file compiled from a supported policy module.
-  # Example:
-  #   registry-policy.wasm: <base64-encoded-wasm-binary>
-  # The sandboxed Wasmtime runtime enforces memory and fuel limits to
-  # guarantee execution completes within the webhook timeout.
 ---
 # PodDisruptionBudget for high availability
 apiVersion: policy/v1

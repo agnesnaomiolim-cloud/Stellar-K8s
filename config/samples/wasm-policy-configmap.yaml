@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stellar-wasm-policy
+  namespace: stellar-system
+  keys:
+    wasm-policy.wasm: plugin.bin
+data:
+  policy.metadata.yaml: |
+    apiVersion: stellar.stellar.org/v1
+    kind: WasmPolicy
+    metadata:
+      name: allowed-registries
+      namespace: stellar-system
+    spec:
+      failMode: FailClosed
+      timeoutMilliseconds: 5000
+      maxMemoryBytes: 67108864
+      rules:
+        - name: allowed-docker-registries
+          description: >
+            Reject any StellarNode whose container image is not sourced from an
+            approved registry.
+          allowedRegistries:
+            - registry.stellar.org
+            - ghcr.io/stellar-labs
+          denyTags:
+            - latest
+            - dev
