@@ -1,0 +1,17 @@
+[package]
+name = "index-basket-factory"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Factory that deploys and registers index-basket contracts"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "22.0.11"
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0.11", features = ["testutils"] }
+index-basket = { path = "..", features = ["testutils"] }

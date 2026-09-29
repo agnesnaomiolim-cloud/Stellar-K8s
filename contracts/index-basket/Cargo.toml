@@ -1,0 +1,36 @@
+[package]
+name = "index-basket"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Multi-asset index basket token: in-kind issuance/redemption and oracle-guarded arbitrageur rebalancing"
+publish = false
+
+# Standalone workspace root so these crates are not conflated with the parent
+# operator workspace.
+[workspace]
+members = ["factory"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Exposes the mock token / oracle contracts to dependants' tests (the factory).
+testutils = ["soroban-sdk/testutils"]
+
+[dependencies]
+soroban-sdk = "22.0.11"
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0.11", features = ["testutils"] }
+proptest = "1.5"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
