@@ -253,6 +253,41 @@ featureFlags:
   enableArchiveHealth: true
   enableSorobanMetrics: false
 
+# Dynamic Host Function Pricing Calibrator
+# Sidecar that benchmarks Soroban host functions on isolated CPU cores and
+# exports calibrated pricing metrics for Grafana dashboards.
+hostFunctionCalibrator:
+  enabled: false
+  image:
+    repository: ghcr.io/stellar/stellar-k8s
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Isolated CPU cores reserved for benchmarking (cpuset notation).
+  isolatedCpus: "2-3"
+  # Benchmark interval in seconds.
+  intervalSecs: 300
+  # Number of benchmark iterations per host function.
+  iterations: 1000
+  # Host functions to benchmark (e.g. hashing, ledger reads).
+  hostFunctions:
+    - "crypto_sha256"
+    - "crypto_ed25519_verify"
+    - "ledger_get"
+    - "ledger_put"
+  # Baseline execution time (microseconds) for network reference hardware.
+  baselineMicros: 100
+  # Threshold multiplier above baseline to flag high-risk CPU exhaustion.
+  highRiskThreshold: 2.0
+  # Prometheus metrics port for the exporter.
+  metricsPort: 9103
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
 costOptimization:
   resourceTracking:
     enabled: false
@@ -263,6 +298,13 @@ costOptimization:
     maxPricePerHourUsd: "0"
     fallbackToOnDemand: true
   monthlyBudgetUsd: 0
+
+# Grafana dashboard template for host function execution speeds over time.
+# See monitoring/host-function-calibrator-dashboard.json
+hostFunctionCalibratorDashboard:
+  enabled: false
+  grafanaDashboardLabel: "grafana_dashboard"
+  namespace: "monitoring"
 
 # Validator key rotation daemon. Disabled by default; when enabled the operator
 # rotates only Validator seed sources backed by supported external Secret Managers.
