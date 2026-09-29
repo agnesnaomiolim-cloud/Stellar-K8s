@@ -51,6 +51,7 @@ Key signals to monitor:
 
 ## Related Documentation
 
+- [GitOps Disaster Recovery & State Rollback](dr-gitops-rollback.md)
 - [Incident Response](incident-response.md)
 - [Production Profiling Runbook](profiling-runbook.md)
 - [API Reference](../api/index.md)

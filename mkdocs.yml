@@ -113,6 +113,7 @@ nav:
     - Backup and Restore: tutorials/backup-restore.md
   - Operations & Observability:
     - SCP Consensus Topology and Monitoring: scp-consensus-topology-and-monitoring.md
+    - GitOps Disaster Recovery & State Rollback: operations/dr-gitops-rollback.md
     - Production Profiling Runbook: operations/profiling-runbook.md
     - Core Blue/Green Runbook: operations/core-blue-green-runbook.md
     - Kafka Event Streaming Bridge: operations/kafka-event-bridge.md
