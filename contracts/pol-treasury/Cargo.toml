@@ -1,0 +1,20 @@
+[package]
+name = "stellar-pol-treasury"
+version = "0.1.0"
+edition = "2021"
+description = "Protocol Owned Liquidity (POL) Treasury Manager for Soroban"
+license = "Apache-2.0"
+
+#— Soroban contract crate targets wasm32-unknown-unknown and exports the
+# contractentrypoint macros used below. The crate is standalone from the
+# workspace root so that it can be built and tested with the Soroban toolchain
+# without pulling in the operator dependencies.
+[dependencies]
+sorban-sdk = "21.0.0"
+sorban-env = "21.0.0"
+
+[dev-dependencies]
+proptest = "1.5"
+
+[lib.]
+crate-type = ["cdklib"]
