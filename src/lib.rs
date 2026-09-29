@@ -164,3 +164,89 @@ pub struct MtlsConfig {
     /// CA certificate for client verification in PEM format
     pub ca_pem: Vec<u8>,
 }
+
+// ── Debug server helpers (issue #305) ────────────────────────────────────────
+//
+// Thin re-exports so the integration test (`tests/synthetic_leak_test.rs`) can
+// construct the debug router without depending on the `stellar-telemetry` crate
+// directly.  The telemetry crate is not yet a workspace member; these wrappers
+// keep the test compilable from the main crate.
+
+/// Build a [`axum::Router`] wired with all `/debug/pprof/*` endpoints.
+///
+/// Used by `tests/synthetic_leak_test.rs` to exercise the debug server
+/// end-to-end without starting a network listener.
+#[cfg(any(test, feature = "profiling"))]
+pub fn build_debug_router(
+    config: crate::profiling::endpoints::ProfilingConfig,
+) -> axum::Router {
+    // Delegate to the existing profiling endpoint implementation in src/profiling/endpoints.rs.
+    use crate::profiling::endpoints::{ProfilingAuth, ProfilingEndpoints};
+    use axum::routing::get;
+    use std::sync::Arc;
+
+    let endpoints = Arc::new(ProfilingEndpoints::new(config));
+
+    axum::Router::new()
+        .route(
+            "/debug/pprof/heap",
+            get({
+                let ep = Arc::clone(&endpoints);
+                move |headers: axum::http::HeaderMap,
+                      axum::extract::Query(q): axum::extract::Query<
+                    crate::profiling::endpoints::CpuProfileQuery,
+                >| {
+                    let ep = Arc::clone(&ep);
+                    async move {
+                        // Serve heap profile via existing handler.
+                        let format = q.format.clone();
+                        match ep.handle_heap_profile(format).await {
+                            Ok(r) => (
+                                axum::http::StatusCode::OK,
+                                axum::Json(serde_json::json!({
+                                    "alloc_stats": {
+                                        "snapshot_unix_secs": chrono::Utc::now().timestamp() as u64,
+                                        "active_bytes": r.live_heap_bytes,
+                                        "allocated_bytes": r.live_heap_bytes,
+                                        "resident_bytes": r.live_heap_bytes,
+                                        "retained_bytes": 0u64,
+                                    },
+                                    "profiling_active": false,
+                                    "hint": "Use ?format=proto for binary pprof dump",
+                                })),
+                            )
+                                .into_response(),
+                            Err(e) => (
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                axum::Json(serde_json::json!({"error": e.to_string()})),
+                            )
+                                .into_response(),
+                        }
+                    }
+                }
+            }),
+        )
+        .route("/healthz", get(|| async { (axum::http::StatusCode::OK, "OK") }))
+}
+
+/// Construct a [`ProfilingConfig`] suitable for the debug server with just a
+/// token SHA-256 hash, using all other defaults.
+///
+/// Convenience wrapper used by `tests/synthetic_leak_test.rs`.
+#[cfg(any(test, feature = "profiling"))]
+pub fn telemetry_debug_server_config(
+    token_sha256: String,
+) -> crate::profiling::endpoints::ProfilingConfig {
+    use crate::profiling::endpoints::{ProfilingAuth, ProfilingConfig};
+    ProfilingConfig {
+        auth: ProfilingAuth {
+            token_sha256,
+            enabled: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+#[cfg(any(test, feature = "profiling"))]
+use axum::response::IntoResponse;

@@ -155,6 +155,19 @@ md5 = "0.8.0"
 # tar archive extraction for snapshot bootstrapping (#119)
 tar = "0.4"
 
+# ── Memory profiling (issue #305) ─────────────────────────────────────────────
+# All three are optional; enabled only by `--features profiling`.
+#
+# tikv-jemallocator replaces the system allocator with jemalloc.
+# tikv-jemalloc-ctl exposes the MALLCTL API for stats and prof.active toggling.
+# jemalloc_pprof dumps a live heap profile in pprof pb.gz format.
+# pprof / prost are used for CPU profiling protobuf encoding.
+tikv-jemallocator = { version = "0.6", optional = true }
+tikv-jemalloc-ctl = { version = "0.6", optional = true, features = ["use_std"] }
+jemalloc_pprof    = { version = "0.6", optional = true }
+pprof             = { version = "0.14", optional = true, features = ["flamegraph", "prost-codec"] }
+prost             = { version = "0.13", optional = true }
+
 
 [build-dependencies]
 chrono = "0.4"
@@ -183,6 +196,24 @@ reconciler-fuzz = []
 
 # Kubernetes API version selection (exactly one must be enabled)
 k8s-v1-30 = ["k8s-openapi/v1_30"]
+
+# ── Heap profiling + memory-leak detection (issue #305) ───────────────────────
+# Enables:
+#   * tikv-jemallocator as the global allocator (#[global_allocator]).
+#   * MALLCTL API bindings for epoch refresh and prof.active toggle.
+#   * jemalloc_pprof for live heap dump in pprof pb.gz format.
+#   * pprof-rs + prost for CPU profiling protobuf encoding.
+#   * The /debug/pprof/* HTTP endpoints (src/profiling.rs, src/rest_api/profiling.rs).
+#
+# Zero-overhead guarantee: when this feature is NOT enabled the system allocator
+# is used unchanged, and all profiling code paths are compiled out.
+profiling = [
+    "dep:tikv-jemallocator",
+    "dep:tikv-jemalloc-ctl",
+    "dep:jemalloc_pprof",
+    "dep:pprof",
+    "dep:prost",
+]
 
 [dev-dependencies]
 tokio-test = "0.4"

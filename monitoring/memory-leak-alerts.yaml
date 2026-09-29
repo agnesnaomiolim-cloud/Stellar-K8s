@@ -1,0 +1,210 @@
+# Copyright 2024 Stellar-K8s Contributors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# monitoring/memory-leak-alerts.yaml
+#
+# Prometheus alerting rules for operator memory leak detection (issue #305).
+#
+# Requirement: fire when the controller's RSS grows by more than 20 % over
+# a 24-hour rolling window.
+#
+# Metrics consumed:
+#   process_resident_memory_bytes  — standard Go/Rust process metric exposed by
+#                                    the operator on /metrics (prometheus-client).
+#   stellar_profiling_rss_bytes    — jemalloc-sourced RSS gauge emitted by the
+#                                    profiling subsystem (src/profiling/metrics.rs).
+#
+# Deploy with:
+#   kubectl apply -f monitoring/memory-leak-alerts.yaml -n stellar-system
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: stellar-operator-memory-leak
+  namespace: stellar-system
+  labels:
+    app.kubernetes.io/name: stellar-operator
+    app.kubernetes.io/component: monitoring
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+
+    # ── Recording rules ────────────────────────────────────────────────────────
+    # Pre-compute the 24-hour baseline so the alert expression stays simple and
+    # Prometheus does not have to re-evaluate a large range query on every scrape.
+    - name: stellar_operator_memory_recording
+      interval: 5m
+      rules:
+
+        # Snapshot RSS every 5 minutes via jemalloc gauge (preferred — more accurate).
+        - record: stellar:operator:rss_bytes:5m
+          expr: stellar_profiling_rss_bytes
+          labels:
+            source: jemalloc
+
+        # Fallback to the standard process metric when profiling is not enabled.
+        - record: stellar:operator:rss_bytes_proc:5m
+          expr: process_resident_memory_bytes{job="stellar-operator"}
+          labels:
+            source: proc
+
+        # 24-hour minimum RSS (rolling; used as denominator for growth %).
+        - record: stellar:operator:rss_bytes_24h_min
+          expr: >
+            min_over_time(
+              stellar:operator:rss_bytes:5m[24h]
+            )
+
+        # Current growth percentage vs. 24-hour minimum.
+        - record: stellar:operator:rss_growth_pct_24h
+          expr: >
+            100 * (
+              stellar:operator:rss_bytes:5m
+              /
+              stellar:operator:rss_bytes_24h_min
+              - 1
+            )
+
+        # Same computation using the /proc fallback metric.
+        - record: stellar:operator:rss_growth_pct_24h_proc
+          expr: >
+            100 * (
+              stellar:operator:rss_bytes_proc:5m
+              /
+              min_over_time(stellar:operator:rss_bytes_proc:5m[24h])
+              - 1
+            )
+
+    # ── Alerting rules ─────────────────────────────────────────────────────────
+    - name: stellar_operator_memory_leak
+      rules:
+
+        # ── Primary alert (jemalloc metric) ────────────────────────────────────
+        # Fires when the operator RSS (as measured by jemalloc) has grown by
+        # more than 20 % compared to the minimum RSS seen in the last 24 hours.
+        # `for: 30m` avoids false positives from short-lived spikes (e.g. a
+        # single large reconcile batch).
+        - alert: StellarOperatorMemoryLeakDetected
+          expr: stellar:operator:rss_growth_pct_24h > 20
+          for: 30m
+          labels:
+            severity: warning
+            component: stellar-operator
+            team: platform
+          annotations:
+            summary: >
+              Stellar operator RSS grew > 20 % over 24 h
+              (pod {{ $labels.pod }}, namespace {{ $labels.namespace }})
+            description: >
+              The Stellar-K8s operator process RSS has increased by
+              {{ $value | printf "%.1f" }} % over the past 24 hours, which
+              exceeds the 20 % threshold.  This may indicate a logical memory
+              leak in a long-running control loop.
+
+              **Immediate action**: pull a heap flamegraph to identify the
+              leaking struct:
+
+                kubectl port-forward pod/{{ $labels.pod }} 6060:6060 -n {{ $labels.namespace }}
+                TOKEN=$(kubectl get secret stellar-profiling-token \
+                        -n {{ $labels.namespace }} \
+                        -o jsonpath='{.data.token}' | base64 -d)
+                curl -H "X-Profiling-Token: $TOKEN" \
+                     "http://localhost:6060/debug/pprof/heap?format=proto" \
+                     -o heap.pb.gz
+                go tool pprof -http=:8080 heap.pb.gz
+
+              See the profiling runbook at docs/operations/profiling-runbook.md.
+            runbook_url: "https://stellar-k8s.io/ops/profiling-runbook"
+            dashboard_url: >
+              https://grafana.stellar-k8s.io/d/profiling?var-pod={{ $labels.pod }}
+
+        # ── Critical escalation ─────────────────────────────────────────────────
+        # Upgrades to critical once the operator has been holding > 50 % growth
+        # for an hour — likely a severe unbounded accumulation.
+        - alert: StellarOperatorMemoryLeakCritical
+          expr: stellar:operator:rss_growth_pct_24h > 50
+          for: 60m
+          labels:
+            severity: critical
+            component: stellar-operator
+            team: platform
+          annotations:
+            summary: >
+              CRITICAL: Stellar operator RSS grew > 50 % over 24 h
+              (pod {{ $labels.pod }})
+            description: >
+              The Stellar-K8s operator RSS has grown by
+              {{ $value | printf "%.1f" }} % over the past 24 hours.
+              Operator stability is at risk.  Consider restarting the pod
+              after capturing a heap dump for post-mortem analysis.
+
+        # ── Absolute size guard ─────────────────────────────────────────────────
+        # Fires when RSS exceeds 150 MB — the operator's target footprint is ~15 MB;
+        # 150 MB signals a 10× accumulation even if the growth-rate rule hasn't fired.
+        - alert: StellarOperatorRSSExceedsLimit
+          expr: stellar:operator:rss_bytes:5m > 157286400   # 150 MiB
+          for: 15m
+          labels:
+            severity: warning
+            component: stellar-operator
+            team: platform
+          annotations:
+            summary: "Stellar operator RSS exceeds 150 MiB (target ~15 MiB)"
+            description: >
+              Current RSS: {{ $value | humanize1024 }}B.
+              The operator's design target is ~15 MiB.  RSS above 150 MiB
+              almost certainly indicates a memory leak.
+
+        # ── Fallback: /proc metric ──────────────────────────────────────────────
+        # Used when the operator is built without `--features profiling` and the
+        # jemalloc gauge is absent.
+        - alert: StellarOperatorMemoryLeakDetectedProc
+          expr: stellar:operator:rss_growth_pct_24h_proc > 20
+          for: 30m
+          labels:
+            severity: warning
+            component: stellar-operator
+            source: proc
+            team: platform
+          annotations:
+            summary: >
+              Stellar operator RSS (proc) grew > 20 % over 24 h
+              (pod {{ $labels.pod }})
+            description: >
+              process_resident_memory_bytes grew by
+              {{ $value | printf "%.1f" }} % over 24 h.
+              Build the operator with `--features profiling` to obtain
+              a jemalloc heap dump for precise allocation-site analysis.
+
+        # ── Leak detector log-scrape alert ──────────────────────────────────────
+        # The in-process MemoryLeakDetector emits structured log lines with
+        # event="stellar_operator_memory_growth_alert".  If a log-metrics pipeline
+        # (e.g. Loki + Prometheus recording) is in place, this alert fires from that.
+        - alert: StellarOperatorInProcessLeakAlertFired
+          expr: >
+            increase(
+              stellar_operator_memory_growth_alert_total[1h]
+            ) > 0
+          for: 0m
+          labels:
+            severity: warning
+            component: stellar-operator
+            source: in_process
+            team: platform
+          annotations:
+            summary: "In-process memory leak detector fired an alert"
+            description: >
+              The operator's built-in MemoryLeakDetector (telemetry/src/profiling/allocator.rs)
+              has emitted at least one memory-growth alert in the last hour.
+              Check operator logs for `event=stellar_operator_memory_growth_alert`
+              and pull a heap profile.

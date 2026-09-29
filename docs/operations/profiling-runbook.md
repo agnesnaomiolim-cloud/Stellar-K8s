@@ -175,3 +175,114 @@ Compare only profiles taken under similar load and similar duration. Short sampl
 - [Operator REST API](../api/index.md)
 - [OpenAPI](../api/openapi.yaml)
 - [Operations index](index.md)
+
+---
+
+## Issue #305 — Memory Leak Detector & Heaptrack Profiling
+
+This section covers the enhancements introduced by issue #305: the standalone
+debug server, jemalloc heap profiling, the in-process memory-leak detector, and
+the automated Prometheus alerts.
+
+### Architecture overview
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  stellar-operator (built with --features profiling)           │
+│                                                               │
+│  ┌─────────────────────────────┐  ┌────────────────────────┐ │
+│  │  jemalloc global allocator  │  │  MemoryLeakDetector     │ │
+│  │  (tikv-jemallocator)        │  │  polls RSS every 5 min  │ │
+│  │  MALLOC_CONF:               │  │  fires warn! if >20%    │ │
+│  │    prof:true                │  │  growth over 24 h       │ │
+│  │    prof_active:false        │  └───────────┬────────────┘ │
+│  │    lg_prof_sample:19        │              │               │
+│  └──────────────┬──────────────┘              │ tracing::warn │
+│                 │ dump_pprof()                 ▼               │
+│  ┌──────────────▼──────────────┐  ┌────────────────────────┐ │
+│  │  /debug/pprof/heap          │  │  Prometheus             │ │
+│  │  (127.0.0.1:6060)           │  │  stellar_profiling_     │ │
+│  │  X-Profiling-Token required │  │  rss_bytes gauge        │ │
+│  └─────────────────────────────┘  └────────────────────────┘ │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### Enabling the debug server (issue #305)
+
+The debug server runs on `127.0.0.1:6060` **in addition to** the REST API
+server on port 9090.  It is completely independent and never requires mTLS.
+
+```bash
+# Build with profiling support
+cargo build --release --features profiling
+
+# Set the token SHA-256 (store the raw token in a K8s Secret)
+TOKEN=$(openssl rand -hex 32)
+TOKEN_SHA256=$(echo -n "$TOKEN" | sha256sum | awk '{print $1}')
+
+kubectl create secret generic stellar-profiling-token \
+  --from-literal=token="$TOKEN" \
+  -n stellar-system
+
+# Pass the hash to the operator via env var
+export STELLAR_PROFILING_TOKEN_SHA256="$TOKEN_SHA256"
+```
+
+### Pulling a heap flamegraph (issue #305 workflow)
+
+```bash
+# 1. Port-forward the debug server
+kubectl port-forward pod/<operator-pod> 6060:6060 -n stellar-system
+
+# 2. Retrieve the token
+TOKEN=$(kubectl get secret stellar-profiling-token \
+        -n stellar-system \
+        -o jsonpath='{.data.token}' | base64 -d)
+
+# 3. Pull a binary pprof heap dump
+curl -sSf \
+  -H "X-Profiling-Token: $TOKEN" \
+  "http://localhost:6060/debug/pprof/heap?format=proto" \
+  -o heap.pb.gz
+
+# 4. Render an interactive flamegraph
+go tool pprof -http=:8080 heap.pb.gz
+# Open http://localhost:8080/ui/flamegraph in your browser
+
+# 5. Or get a quick text summary
+go tool pprof -top heap.pb.gz
+```
+
+### In-process memory-leak detector
+
+The `MemoryLeakDetector` (in `telemetry/src/profiling/allocator.rs`) runs as a
+background Tokio task.  It samples RSS every 5 minutes and emits a
+`tracing::warn!` with `event=stellar_operator_memory_growth_alert` when RSS
+grows more than **20 %** over a **24-hour** rolling window.
+
+This alert is also captured by the Prometheus rule
+`StellarOperatorMemoryLeakDetected` in
+`monitoring/memory-leak-alerts.yaml`.
+
+### Prometheus alerts (issue #305)
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| `StellarOperatorMemoryLeakDetected` | RSS > 20 % growth over 24 h (jemalloc) | warning |
+| `StellarOperatorMemoryLeakCritical` | RSS > 50 % growth over 24 h | critical |
+| `StellarOperatorRSSExceedsLimit` | RSS > 150 MiB absolute | warning |
+| `StellarOperatorMemoryLeakDetectedProc` | RSS > 20 % growth over 24 h (/proc) | warning |
+
+Deploy the alert rules:
+
+```bash
+kubectl apply -f monitoring/memory-leak-alerts.yaml -n stellar-system
+```
+
+### Zero-overhead guarantee
+
+When the operator is **not** built with `--features profiling`:
+- The system allocator is used unchanged.
+- The debug server on port 6060 is still started but returns `501 Not Implemented` for `?format=proto`.
+- The `MemoryLeakDetector` falls back to `/proc/self/status` for RSS polling.
+- All jemalloc code paths are compiled out by `#[cfg(feature = "profiling")]`.

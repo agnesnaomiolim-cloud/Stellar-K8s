@@ -1,1 +1,64 @@
 [package]
+name = "stellar-telemetry"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stellar K8s Contributors"]
+description = "Prometheus metrics exporter and heap-profiling subsystem for Stellar-K8s (issue #305)"
+license = "Apache-2.0"
+repository = "https://github.com/stellar/stellar-k8s"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP server for /metrics and /debug/pprof/* endpoints
+axum = { version = "0.8.8", features = [] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Prometheus metrics
+prometheus-client = "0.22"
+
+# Logging and tracing
+tracing = "0.1"
+
+# SHA-256 for profiling token verification
+sha2 = "0.10"
+hex = "0.4"
+
+# Error handling
+thiserror = "1"
+
+# tower utilities required by axum test harness
+tower = { version = "0.4", features = ["util"] }
+
+# ── Profiling dependencies (optional — activated by `--features profiling`) ──
+#
+# tikv-jemallocator  : jemalloc global allocator replacement.
+# tikv-jemalloc-ctl  : safe bindings to jemalloc's MALLCTL API (epoch, stats,
+#                      prof.active).
+# jemalloc_pprof     : dumps the jemalloc heap profile in pprof pb.gz format
+#                      compatible with `go tool pprof`.
+#
+# All three carry the jemalloc C library at compile time.  Excluding them from
+# the default feature set means non-profiling builds have no jemalloc overhead.
+tikv-jemallocator = { version = "0.6", optional = true }
+tikv-jemalloc-ctl = { version = "0.6", optional = true, features = ["use_std"] }
+jemalloc_pprof    = { version = "0.6", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile   = "3"
+
+[features]
+default = []
+
+# Enable the jemalloc allocator, MALLCTL-based stats, pprof heap dump, and
+# the in-process MemoryLeakDetector.
+profiling = [
+    "dep:tikv-jemallocator",
+    "dep:tikv-jemalloc-ctl",
+    "dep:jemalloc_pprof",
+]
