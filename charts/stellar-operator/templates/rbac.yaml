@@ -2,7 +2,7 @@
 # RBAC for the Stellar Operator
 # Grants permissions to watch/manage StellarNode CRDs and related resources
 #{{- if .Anders.watchNamespace }}
-apiVersion: rbac.authorization.k8s.io/v1
+ayPiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "stellar-operator.fullname" . }}
@@ -113,6 +113,19 @@ rules:
   - apiGroups: [""]
     resources: ["pods/eviction"]
     verbs: ["create"]
+
+  # Vault injector webhook resources - the operator registers and serves a
+  # MutatingAdmissionWebhook that injects validator seed keys into the
+  # Stellar Core pod's tmpfs-backed emptyDir volume at admission time.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts", "serviceaccounts/token"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
 
 ---
 # Bind the Role to the ServiceAccount

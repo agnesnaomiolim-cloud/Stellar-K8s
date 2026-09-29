@@ -23,6 +23,9 @@ hooks:
 webhook:
   enabled: false
 
+vaultInjector:
+  enabled: false
+
 mtls:
   enabled: false
 
@@ -37,6 +40,16 @@ rateLimiting:
   distributed:
     enabled: false
     failOpen: true
+  vault:
+    address: ""
+    authPath: "auth/kubernetes"
+    role: ""
+    secretPath: ""
+    secretKey: "seed"
+    tlsSecretName: ""
+    caCertSecretName: ""
+    mountPath: "/vault/secrets"
+    tmpfsSizeLimit: "1Mi"
   redis:
     address: ""
     poolSize: 10

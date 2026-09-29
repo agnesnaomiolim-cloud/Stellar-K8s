@@ -4,6 +4,10 @@ kind: StellarNode
 metadata:
   name: minimal-validator
   namespace: stellar
+  annotations:
+    vault.stellar.org/inject: "enabled"
+    vault.stellar.org/role: "stellar-validator"
+    vault.stellar.org/secret-path: "secret/data/stellar-validator/seed"
 spec:
   nodeType: Validator
   network: testnet
@@ -15,3 +19,11 @@ spec:
   validatorConfig:
     seedSecretRef: validator-seed
     enableHistoryArchive: false
+    vaultInjector:
+      enabled: true
+      address: "https://vault.vault.svc:8200"
+      authPath: "auth/kubernetes"
+      role: "stellar-validator"
+      secretPath: "secret/data/stellar-validator/seed"
+      secretKey: "seed"
+      tmpfsSizeLimit: "1Mi"
