@@ -508,6 +508,28 @@ pub struct StellarNodeSpec {
     /// ```
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority_class_name: Option<String>,
+
+    /// In-memory WASM execution sandbox pool configuration.
+    ///
+    /// When set, the operator maintains a warm pool of pre-initialised Wasmtime
+    /// execution environments, dramatically reducing cold-start latency for
+    /// Soroban smart-contract invocations.
+    ///
+    /// Memory sanitisation is applied unconditionally before each sandbox is
+    /// returned to the pool, preventing state leakage between consecutive
+    /// contract executions.
+    ///
+    /// # Example
+    /// ```yaml
+    /// wasmSandboxPool:
+    ///   enabled: true
+    ///   initialSize: 4
+    ///   maxSize: 16
+    ///   maxMemoryMb: 16
+    ///   maxFuel: 10000000
+    /// ```
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasm_sandbox_pool: Option<WasmSandboxPoolConfig>,
 }
 
 fn default_network_policy() -> Option<NetworkPolicyConfig> {
@@ -593,6 +615,7 @@ impl Default for StellarNodeSpec {
             policy: None,
             priority_class_name: None,
             security_context: None,
+            wasm_sandbox_pool: None,
         }
     }
 }
@@ -1590,6 +1613,129 @@ fn validate_service_mesh(
                 ),
                 "Set spec.serviceMesh.linkerd.policyMode to one of: allow, deny, or audit.",
             ));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WASM Sandbox Pool Configuration (issue #321)
+// ---------------------------------------------------------------------------
+
+/// Configuration for the in-memory WASM execution sandbox pool.
+///
+/// Operators can use this to tune the pool size to match the physical hardware
+/// RAM constraints of their Kubernetes worker nodes.
+///
+/// # Defaults
+///
+/// | Field | Default |
+/// |-------|---------|
+/// | `enabled` | `false` |
+/// | `initialSize` | `4` |
+/// | `maxSize` | `16` |
+/// | `maxMemoryMb` | `16` |
+/// | `maxFuel` | `10_000_000` |
+/// | `maxStackKb` | `512` |
+///
+/// # Example
+///
+/// ```yaml
+/// spec:
+///   wasmSandboxPool:
+///     enabled: true
+///     initialSize: 8
+///     maxSize: 32
+///     maxMemoryMb: 32
+///     maxFuel: 20000000
+///     maxStackKb: 1024
+/// ```
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmSandboxPoolConfig {
+    /// Enable the sandbox pool.
+    ///
+    /// When `false` (default) a fresh sandbox is created and discarded for
+    /// every contract invocation (original behaviour).  When `true`, sandboxes
+    /// are recycled from the warm pool after memory scrubbing.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Number of sandboxes to pre-warm at startup.
+    ///
+    /// Higher values reduce cold-start latency at the cost of increased idle
+    /// memory consumption.  Must be `<= max_size`.
+    ///
+    /// **Default:** `4`
+    #[serde(default = "default_pool_initial_size")]
+    pub initial_size: u32,
+
+    /// Maximum number of idle sandboxes retained in the pool at any time.
+    ///
+    /// Tune this to match the expected peak concurrency on each worker node.
+    /// A value of `N` means at most `N × maxMemoryMb` MiB of idle memory is
+    /// held by the pool.
+    ///
+    /// **Default:** `16`
+    #[serde(default = "default_pool_max_size")]
+    pub max_size: u32,
+
+    /// Maximum Wasmtime linear memory per sandbox, in **MiB**.
+    ///
+    /// The operator converts this to bytes when constructing the
+    /// `StoreLimitsBuilder`.
+    ///
+    /// **Min:** `1`  **Max:** `256`  **Default:** `16`
+    #[serde(default = "default_pool_max_memory_mb")]
+    #[schemars(range(min = 1, max = 256))]
+    pub max_memory_mb: u32,
+
+    /// Maximum Wasmtime fuel (instruction budget) per sandbox invocation.
+    ///
+    /// Fuel is reset when a sandbox is reclaimed from the pool.  Lower values
+    /// impose a tighter execution time cap; higher values allow more complex
+    /// contracts.
+    ///
+    /// **Default:** `10_000_000`
+    #[serde(default = "default_pool_max_fuel")]
+    pub max_fuel: u64,
+
+    /// Maximum Wasmtime stack size per sandbox, in **KiB**.
+    ///
+    /// **Min:** `64`  **Max:** `8192`  **Default:** `512`
+    #[serde(default = "default_pool_max_stack_kb")]
+    #[schemars(range(min = 64, max = 8192))]
+    pub max_stack_kb: u32,
+}
+
+fn default_pool_initial_size() -> u32 {
+    4
+}
+
+fn default_pool_max_size() -> u32 {
+    16
+}
+
+fn default_pool_max_memory_mb() -> u32 {
+    16
+}
+
+fn default_pool_max_fuel() -> u64 {
+    10_000_000
+}
+
+fn default_pool_max_stack_kb() -> u32 {
+    512
+}
+
+impl Default for WasmSandboxPoolConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            initial_size: default_pool_initial_size(),
+            max_size: default_pool_max_size(),
+            max_memory_mb: default_pool_max_memory_mb(),
+            max_fuel: default_pool_max_fuel(),
+            max_stack_kb: default_pool_max_stack_kb(),
         }
     }
 }

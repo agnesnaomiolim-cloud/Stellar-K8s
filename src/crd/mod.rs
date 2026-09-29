@@ -146,7 +146,7 @@ pub use stellar_network_policy::{
 };
 pub use stellar_node::{
     BGPStatus, SnapshotBootstrapStatus, SpecValidationError, StellarNode, StellarNodeSpec,
-    StellarNodeStatus,
+    StellarNodeStatus, WasmSandboxPoolConfig,
 };
 pub use stellar_observability::{
     AlertRule, AlertingConfig, AnomalyDetectionConfig, AnomalyModel, AnomalySensitivity,

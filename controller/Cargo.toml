@@ -4,3 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Async runtime — needed by SandboxPool (Mutex, spawn, time)
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+
+# Wasmtime for WASM sandbox execution
+wasmtime = { version = "24.0.7" }
+
+[dev-dependencies]
+# WAT (WebAssembly Text Format) parsing for tests
+wat = "1.246"
+tokio = { version = "1", features = ["full", "test-util"] }

@@ -106,6 +106,9 @@ x509-parser = "0.16"
 # Bounded Soroban RPC cache primitives and Wasm guest
 stellar-wasm-cache = { path = "wasm-plugins" }
 
+# Controller crate — provides WASM sandbox pool and quorum logic
+controller = { path = "controller" }
+
 # Wasm runtime for custom validation plugins
 wasmtime = { version = "24.0.7", optional = true }
 wasmtime-wasi = { version = "24.0.7", features = ["preview1"], optional = true }
@@ -228,4 +231,4 @@ path = "src/bin/stellar-fork-detector.rs"
 required-features = ["rest-api", "metrics"]
 
 [workspace]
-members = ["wasm-plugins"]
+members = ["wasm-plugins", "controller"]

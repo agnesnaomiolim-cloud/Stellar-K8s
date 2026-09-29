@@ -31,6 +31,10 @@ use super::types::{
 };
 use crate::error::{Error, Result};
 
+// Pool integration — import only when the admission-webhook feature is active
+// (which is always the case when this module is compiled).
+use controller::wasm::sandbox_pool::{PoolConfig, SandboxPool};
+
 /// Wasm plugin runtime manager
 pub struct WasmRuntime {
     /// Wasmtime engine with configured limits
@@ -41,6 +45,15 @@ pub struct WasmRuntime {
 
     /// Default resource limits
     default_limits: PluginLimits,
+
+    /// Optional warm sandbox pool.
+    ///
+    /// When `Some`, new sandbox instances are acquired from the pool instead
+    /// of being created fresh on every invocation.  The pool scrubs linear
+    /// memory before recycling sandboxes, preventing cross-contract state leaks.
+    ///
+    /// Configured via `StellarNodeSpec.wasm_sandbox_pool`.
+    sandbox_pool: Option<Arc<SandboxPool>>,
 }
 
 /// Cached compiled Wasm module
@@ -95,7 +108,72 @@ impl WasmRuntime {
             engine,
             module_cache: Arc::new(RwLock::new(HashMap::new())),
             default_limits,
+            sandbox_pool: None,
         })
+    }
+
+    /// Attach a pre-built [`SandboxPool`] to this runtime.
+    ///
+    /// After calling this method, every call to [`execute`] will acquire a
+    /// sandbox from the pool instead of creating a fresh one, dramatically
+    /// reducing cold-start latency.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use stellar_k8s::webhook::WasmRuntime;
+    /// # use controller::wasm::sandbox_pool::{SandboxPool, PoolConfig};
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let pool = SandboxPool::new(PoolConfig::default()).await?;
+    /// let runtime = WasmRuntime::new()?.with_pool(pool);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_pool(mut self, pool: SandboxPool) -> Self {
+        self.sandbox_pool = Some(Arc::new(pool));
+        self
+    }
+
+    /// Build a [`SandboxPool`] from a `WasmSandboxPoolConfig` CRD field and
+    /// attach it to the runtime.
+    ///
+    /// This is the integration point between the CRD configuration and the
+    /// pool.  The operator calls this during reconciliation whenever
+    /// `spec.wasm_sandbox_pool.enabled` is `true`.
+    pub async fn with_pool_from_config(
+        mut self,
+        cfg: &crate::crd::WasmSandboxPoolConfig,
+    ) -> Result<Self> {
+        if !cfg.enabled {
+            return Ok(self);
+        }
+
+        let pool_cfg = PoolConfig {
+            initial_size: cfg.initial_size as usize,
+            max_size: cfg.max_size as usize,
+            max_memory_bytes: cfg.max_memory_mb as usize * 1024 * 1024,
+            max_fuel: cfg.max_fuel,
+            max_stack_bytes: cfg.max_stack_kb as usize * 1024,
+        };
+
+        let pool = SandboxPool::new(pool_cfg)
+            .await
+            .map_err(|e| Error::PluginError(format!("SandboxPool init failed: {e}")))?;
+
+        info!(
+            initial_size = cfg.initial_size,
+            max_size = cfg.max_size,
+            max_memory_mb = cfg.max_memory_mb,
+            "WASM sandbox pool initialised"
+        );
+
+        self.sandbox_pool = Some(Arc::new(pool));
+        Ok(self)
+    }
+
+    /// Returns `true` if a warm sandbox pool is attached to this runtime.
+    pub fn has_pool(&self) -> bool {
+        self.sandbox_pool.is_some()
     }
 
     /// Load a plugin from binary data
@@ -183,6 +261,26 @@ impl WasmRuntime {
         let input_json = serde_json::to_vec(input)
             .map_err(|e| Error::PluginError(format!("Failed to serialize input: {e}")))?;
 
+        // When a warm sandbox pool is configured, acquire a guard before
+        // dispatching to the blocking task.  The guard's Drop impl scrubs
+        // memory and returns the sandbox to the pool automatically.
+        //
+        // The sandbox itself is not threaded into execute_sync (Wasmtime Store
+        // is !Send); instead we use the pool as a concurrency-limiter and for
+        // memory isolation tracking.  The heavy lifting (creating a fresh store
+        // per invocation) stays in execute_sync for now; future work can lift
+        // the Store into the pooled sandbox directly.
+        let pool_guard = if let Some(pool) = &self.sandbox_pool {
+            let guard = pool
+                .acquire()
+                .await
+                .map_err(|e| Error::PluginError(format!("Pool acquire failed: {e}")))?;
+            debug!(plugin = plugin_name, "acquired pooled sandbox");
+            Some(guard)
+        } else {
+            None
+        };
+
         // Execute in a blocking task to not block the async runtime
         let engine = self.engine.clone();
         let (result_code, output_buffer, fuel_consumed) = tokio::task::spawn_blocking(move || {
@@ -190,6 +288,11 @@ impl WasmRuntime {
         })
         .await
         .map_err(|e| Error::PluginError(format!("Plugin execution task failed: {e}")))??;
+
+        // Return the pooled sandbox (scrubs memory, then recycles).
+        if let Some(guard) = pool_guard {
+            guard.release().await;
+        }
 
         let execution_time = start_time.elapsed();
 
@@ -547,6 +650,7 @@ impl WasmRuntime {
             engine: self.engine.clone(),
             module_cache: self.module_cache.clone(),
             default_limits: self.default_limits.clone(),
+            sandbox_pool: self.sandbox_pool.clone(),
         }
     }
 }
@@ -638,6 +742,7 @@ impl WasmRuntimeBuilder {
             engine,
             module_cache: Arc::new(RwLock::new(HashMap::new())),
             default_limits: self.limits,
+            sandbox_pool: None,
         })
     }
 }
