@@ -563,3 +563,26 @@ scpAnalytics:
       requests:
         cpu: 200m
         memory: 256Mi
+
+# Kafka Event Streaming Bridge for Horizon and Captive Core (Issue #292)
+eventBridge:
+  enabled: false
+  replicas: 1
+  source: "captive-core" # "captive-core", "redis", or "synthetic"
+  format: "json"         # "json" or "avro"
+  enableExactlyOnce: true
+  bufferCapacity: 10000
+  logLevel: "info"
+  kafka:
+    bootstrapServers: "kafka:9092"
+    topicLedgers: "stellar.ledger.changes"
+    topicTransfers: "stellar.token.transfers"
+    topicContracts: "stellar.contract.events"
+    numPartitions: 16
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi

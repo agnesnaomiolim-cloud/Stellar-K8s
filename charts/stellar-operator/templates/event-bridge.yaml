@@ -1,0 +1,84 @@
+{{- if .Values.eventBridge.enabled }}
+---
+# ConfigMap for Kafka Event Streaming Bridge
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stellar-operator.fullname" . }}-event-bridge-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stellar-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-bridge
+data:
+  bridge-config.yaml: |
+    kafkaBrokers: {{ .Values.eventBridge.kafka.bootstrapServers | quote }}
+    topicLedgers: {{ .Values.eventBridge.kafka.topicLedgers | default "stellar.ledger.changes" | quote }}
+    topicTransfers: {{ .Values.eventBridge.kafka.topicTransfers | default "stellar.token.transfers" | quote }}
+    topicContracts: {{ .Values.eventBridge.kafka.topicContracts | default "stellar.contract.events" | quote }}
+    source: {{ .Values.eventBridge.source | default "captive-core" | quote }}
+    format: {{ .Values.eventBridge.format | default "json" | quote }}
+    enableExactlyOnce: {{ .Values.eventBridge.enableExactlyOnce | default true }}
+    numPartitions: {{ .Values.eventBridge.kafka.numPartitions | default 16 }}
+    bufferCapacity: {{ .Values.eventBridge.bufferCapacity | default 10000 }}
+
+---
+# Deployment for Stellar Kafka Event Streaming Bridge Worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stellar-operator.fullname" . }}-event-bridge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stellar-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-bridge
+spec:
+  replicas: {{ .Values.eventBridge.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "stellar-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: event-bridge
+  template:
+    metadata:
+      labels:
+        {{- include "stellar-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: event-bridge
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "stellar-operator.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: event-bridge
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/event-bridge
+            - --kafka-brokers={{ .Values.eventBridge.kafka.bootstrapServers }}
+            - --topic-ledgers={{ .Values.eventBridge.kafka.topicLedgers | default "stellar.ledger.changes" }}
+            - --topic-transfers={{ .Values.eventBridge.kafka.topicTransfers | default "stellar.token.transfers" }}
+            - --topic-contracts={{ .Values.eventBridge.kafka.topicContracts | default "stellar.contract.events" }}
+            - --source={{ .Values.eventBridge.source | default "captive-core" }}
+            - --format={{ .Values.eventBridge.format | default "json" }}
+          env:
+            - name: RUST_LOG
+              value: {{ .Values.eventBridge.logLevel | default "info" | quote }}
+          resources:
+            {{- toYaml .Values.eventBridge.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/event-bridge
+            - name: captive-core-stream
+              mountPath: /var/run/stellar
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "stellar-operator.fullname" . }}-event-bridge-config
+        - name: captive-core-stream
+          emptyDir: {}
+{{- end }}

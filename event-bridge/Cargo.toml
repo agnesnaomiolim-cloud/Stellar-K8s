@@ -1,0 +1,42 @@
+[package]
+name = "event-bridge"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stellar K8s Contributors"]
+license = "Apache-2.0"
+description = "High-Performance Kafka Event Streaming Bridge for Stellar Horizon and Captive Core"
+
+[lib]
+name = "event_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "event-bridge"
+path = "src/main.rs"
+
+[dependencies]
+rdkafka = { version = "0.36", optional = true, features = ["cmake-build", "ssl", "sasl"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+thiserror = "1"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+async-trait = "0.1"
+futures = "0.3"
+
+[features]
+default = ["kafka"]
+kafka = ["dep:rdkafka"]
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[bench]]
+name = "event_throughput"
+harness = false
