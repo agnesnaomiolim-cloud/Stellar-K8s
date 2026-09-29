@@ -1,1 +1,38 @@
 [package]
+name = "stellar-telemetry"
+version = "0.1.0"
+edition = "2021"
+description = "Stellar-K8s telemetry: Prometheus exporter and SCP topology dashboard"
+license = "Apache-2.0"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialisation
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+
+# HTTP / WebSocket server
+axum        = { version = "0.8.8", features = ["ws"] }
+tower       = "0.4"
+tower-http  = { version = "0.5", features = ["cors"] }
+
+# HTTP client (polling stellar-core endpoints)
+reqwest = { version = "0.12", features = ["json", "rustls-tls-manual-roots"] }
+
+# Prometheus metrics (exporter module)
+prometheus-client = "0.22"
+# Legacy prometheus crate (gas_exporter module)
+prometheus = "0.13"
+lazy_static = "1"
+
+# Logging
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[[bin]]
+name = "scp-topology-server"
+path = "src/bin/scp_topology_server.rs"

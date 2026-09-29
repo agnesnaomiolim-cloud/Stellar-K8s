@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stellar-K8s · Validator Topology</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">★ Stellar-K8s</span>
+    <h1>Validator Topology</h1>
+    <nav class="header-meta" aria-label="Dashboard controls">
+      <label for="ws-url">WS endpoint</label>
+      <input
+        id="ws-url"
+        type="text"
+        value="ws://localhost:8765/ws/scp-topology"
+        aria-label="WebSocket endpoint URL"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button id="connect-btn" aria-label="Connect to WebSocket endpoint">Connect</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Partition alert bar (shown via JS when topology.js detects partition) -->
+    <div id="partition-alert" class="partition-alert" role="alert" aria-live="assertive" hidden>
+      <strong>⚠ Network Partition Detected</strong>
+      — Isolated nodes are highlighted in red. SCP ledger progression has stalled.
+    </div>
+
+    <!-- Canvas wrapper – topology.js attaches the HUD overlay here -->
+    <div id="canvas-wrap" class="canvas-wrap">
+      <canvas id="topology-canvas" aria-label="3D Validator Topology Visualization"></canvas>
+    </div>
+
+    <!-- Side legend -->
+    <aside class="legend" aria-label="Node health legend">
+      <h2>Node Health</h2>
+      <ul>
+        <li><span class="dot synced"   aria-hidden="true"></span> Synced (EXTERNALIZE)</li>
+        <li><span class="dot syncing"  aria-hidden="true"></span> Syncing (PREPARE / CONFIRM)</li>
+        <li><span class="dot degraded" aria-hidden="true"></span> Degraded (offline SCP)</li>
+        <li><span class="dot partitioned" aria-hidden="true"></span> Partitioned (isolated)</li>
+      </ul>
+      <h2>Controls</h2>
+      <ul>
+        <li>🖱 Drag – rotate</li>
+        <li>🖱 Scroll – zoom</li>
+      </ul>
+    </aside>
+  </main>
+
+  <script type="module">
+    import { TopologyRenderer } from './src/webgl/topology.js';
+
+    const canvas = document.getElementById('topology-canvas');
+    const wsInput = document.getElementById('ws-url');
+    const connectBtn = document.getElementById('connect-btn');
+    const partitionAlert = document.getElementById('partition-alert');
+
+    // Size canvas to wrapper before constructing renderer.
+    function sizeCanvas() {
+      const wrap = document.getElementById('canvas-wrap');
+      canvas.width  = wrap.clientWidth;
+      canvas.height = wrap.clientHeight;
+    }
+    sizeCanvas();
+    window.addEventListener('resize', sizeCanvas);
+
+    const renderer = new TopologyRenderer(canvas);
+
+    // Propagate partition detection to the DOM banner.
+    const observer = new MutationObserver(() => {
+      const hasClass = document.getElementById('canvas-wrap')
+        .classList.contains('partition-alert');
+      partitionAlert.hidden = !hasClass;
+    });
+    observer.observe(document.getElementById('canvas-wrap'), { attributes: true });
+
+    function startRenderer(wsUrl) {
+      renderer.connect(wsUrl);
+      renderer.start();
+      connectBtn.textContent = 'Reconnect';
+    }
+
+    connectBtn.addEventListener('click', () => {
+      const url = wsInput.value.trim();
+      if (url) startRenderer(url);
+    });
+
+    // Auto-connect on load.
+    startRenderer(wsInput.value.trim());
+  </script>
+</body>
+</html>
