@@ -6,6 +6,11 @@ kind: StellarNode
 metadata:
   name: test-validator
   namespace: default
+  annotations:
+    # Wasm admission policy configuration for this StellarNode.
+    # The WASM plugin enforces the allowed Docker registry list.
+    stellar.org/wasm-policy: "allowed-registries"
+    stellar.org/wasm-fail-mode: "fail-closed"
 spec:
   nodeType: Validator
   network: testnet
@@ -26,3 +31,8 @@ spec:
   validatorConfig:
     seedSecretRef: "validator-seed"
     enableHistoryArchive: true
+  # Approved registry for the WASM admission policy to validate.
+  image:
+    repository: "docker.io/stellar/stellar-core"
+    tag: "v21.0.0"
+    pullPolicy: IfNotPresent

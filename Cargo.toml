@@ -46,7 +46,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Pinned to fix RUSTSEC-2026-0009 (stack exhaustion DoS); also used transitively
 # by rcgen/yasna/x509-parser.
 time = "0.3.47"
-# Pinned to fix RUSTSEC-2026-0007; used transitively by many HTTP/async crates.
+# Pinned to fix RQSTSEC-2026-0007; used transitively by many HTTP/async crates.
 bytes = "1.11.1"
 
 # Zip compression for incident reports
@@ -75,7 +75,7 @@ opentelemetry-otlp = { version = "0.14", features = [
 # HTTP client for health checks
 reqwest = { version = "0.12", features = [
     "json",
-    "rustls-tls-manual-roots",
+    "rustls-tls_manual-roots",
     "native-tls",
     "multipart",
 ] }
@@ -162,6 +162,7 @@ serde_json = "1"
 walkdir = "2"
 serde = { version = "1", features = ["derive"] }
 
+
 [features]
 default = ["rest-api", "metrics", "admission-webhook", "k8s-v1-30", "kafka"]
 rest-api = ["axum", "tower", "tower-http"]
@@ -176,13 +177,14 @@ admission-webhook = [
 ]
 axum = ["dep:axum"]
 # Keep the SCP Kafka analytics pipeline enabled by default; tests can opt out
-# with `--no-default-features` in minimal build environments.
+# no-default-features in minimal build environments.
 kafka = ["rdkafka"]
 # Expose reconciler for state-machine fuzzing (reconcile_no_panic, event sequences)
 reconciler-fuzz = []
 
 # Kubernetes API version selection (exactly one must be enabled)
 k8s-v1-30 = ["k8s-openapi/v1_30"]
+
 
 [dev-dependencies]
 tokio-test = "0.4"

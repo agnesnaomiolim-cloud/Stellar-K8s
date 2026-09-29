@@ -1,4 +1,5 @@
 {{- if .Values.webhook.enabled }}
+{{- if .Values.webhook.enabled }}
 ---
 # Namespace for the webhook
 apiVersion: v1
@@ -33,6 +34,10 @@ rules:
   # Read ConfigMaps and Secrets for plugin configuration
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Read WASM plugin ConfigMaps for dynamic policy loading
+  - apiGroups: [""]
+    resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
 ---
 # ClusterRoleBinding
@@ -88,6 +93,7 @@ spec:
             - "--webhook-port={{ .Values.webhook.port | default 8443 }}"
             - "--metrics-port={{ .Values.webhook.metricsPort | default 9090 }}"
             - "--cert-dir=/certs"
+            - "--wasm-plugin-dir=/plugins"
           ports:
             - name: https
               containerPort: {{ .Values.webhook.port | default 8443 }}
@@ -97,6 +103,11 @@ spec:
               protocol: TCP
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             {{- toYaml .Values.webhook.resources | nindent 12 }}
           livenessProbe:
@@ -120,6 +131,10 @@ spec:
             - name: plugins
               mountPath: /plugins
               readOnly: true
+            - name: wasm-cache
+              mountPath: /var/cache/wasm
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: certs
           secret:
@@ -128,6 +143,14 @@ spec:
           configMap:
             name: stellar-webhook-plugins
             optional: true
+        - name: wasm-cache
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.webhook.wasmCacheSizeLimit | default "64Mi" }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.webhook.tmpSizeLimit | default "16Mi" }}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -199,6 +222,11 @@ webhooks:
     sideEffects: None
     timeoutSeconds: {{ .Values.webhook.timeoutSeconds | default 10 }}
     failurePolicy: {{ .Values.webhook.failurePolicy | default "Fail" }}
+    # Fail-open/fail-closed routing: when the WASM plugin cannot be loaded
+    # or exceeds the execution timeout, the operator will honor failurePolicy.
+    # Set failurePolicy to "Ignore" for fail-open behavior, "Fail" for fail-closed.
+    matchPolicy: Equivalent
+    reinvocationPolicy: IfNeeded
     matchPolicy: Equivalent
     namespaceSelector:
       matchExpressions:
@@ -253,6 +281,12 @@ data:
     {
       "plugins": []
     }
+  # WASM plugin binaries are loaded from this ConfigMap at runtime.
+  # Each key must be a .wasm file compiled from a supported policy module.
+  # Example:
+  #   registry-policy.wasm: <base64-encoded-wasm-binary>
+  # The sandboxed Wasmtime runtime enforces memory and fuel limits to
+  # guarantee execution completes within the webhook timeout.
 ---
 # PodDisruptionBudget for high availability
 apiVersion: policy/v1
@@ -267,4 +301,5 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: stellar-webhook
+{{- end }}
 {{- end }}
