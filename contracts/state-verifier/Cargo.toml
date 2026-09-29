@@ -1,0 +1,33 @@
+[package]
+name = "state-verifier"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Stellar ledger state verification & snapshot oracle (XDR parsing, Merkle inclusion proofs)"
+publish = false
+
+# Standalone workspace root so this crate is not conflated with the parent
+# operator workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "22.0.11"
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0.11", features = ["testutils"] }
+proptest = "1.5"
+# Independent SHA-256 for the reference Merkle tree in tests.
+sha2 = "0.10"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
