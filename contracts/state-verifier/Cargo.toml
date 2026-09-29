@@ -1,0 +1,38 @@
+# Opt this crate out of the root workspace so it can be built standalone.
+[workspace]
+
+[package]
+name = "state-verifier"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stellar K8s Contributors"]
+description = "Trustless Smart Contract State Verification Protocol — on-chain XDR parser, Merkle inclusion-proof engine, and decentralised proof registry for Soroban"
+license = "Apache-2.0"
+repository = "https://github.com/agnesnaomiolim-cloud/Stellar-K8s"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Soroban SDK (WASM host functions + contract macros)
+soroban-sdk = { version = "27.0.6", features = ["alloc"] }
+
+# SHA-256 digest — no_std compatible
+sha2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+# Enable testutils for off-chain unit / integration testing
+soroban-sdk = { version = "27.0.6", features = ["testutils", "alloc"] }
+hex   = "0.4"
+sha2  = { version = "0.10", default-features = false }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
