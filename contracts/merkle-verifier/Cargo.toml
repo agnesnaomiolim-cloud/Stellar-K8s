@@ -1,3 +1,7 @@
+# Standalone workspace root so this crate is not conflated with the parent
+# operator workspace (which pins its own toolchain/profile settings).
+[workspace]
+
 [package]
 name = "merkle-verifier"
 version = "0.1.0"
@@ -7,17 +11,20 @@ description = "Soroban Merkle Tree state-proof verification library for on-chain
 license = "Apache-2.0"
 repository = "https://github.com/agnesnaomiolim-cloud/Stellar-K8s"
 
+# rlib only: this is a pure Rust library (no Soroban SDK / Wasm binary needed).
+# cdylib would require soroban-sdk and target wasm32-unknown-unknown.
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
-# SHA-256 digest
+# SHA-256 digest — no_std compatible (default-features = false drops the std feature)
 sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 hex = "0.4"
-sha2 = { version = "0.10", default-features = false }
 
+# [[bench]] targets are NOT dev-dependencies, so sha2 must also be a normal
+# dependency (already listed above) for the bench harness to use it.
 [[bench]]
 name = "proof_bench"
 harness = false
