@@ -78,6 +78,8 @@ pub enum JobKind {
     CrossClusterCheck,
     /// Webhook delivery retry.
     WebhookDelivery,
+    /// GitOps deployment engine: poll, apply, and health-check commits.
+    GitOpsSync,
     /// Any other job not covered above.
     Other(String),
 }
@@ -306,6 +308,7 @@ impl JobRegistry {
                         JobKind::BlueGreenRollout => "blue_green_rollout",
                         JobKind::CrossClusterCheck => "cross_cluster_check",
                         JobKind::WebhookDelivery => "webhook_delivery",
+                        JobKind::GitOpsSync => "gitops_sync",
                         JobKind::Other(s) => s.as_str(),
                     };
                     kind_str == k
@@ -465,6 +468,23 @@ mod tests {
         assert_eq!(reconcile_jobs.len(), 2);
         let archive_jobs = r.list(None, Some("archive_check"));
         assert_eq!(archive_jobs.len(), 1);
+    }
+
+    #[test]
+    fn test_gitops_sync_job_kind() {
+        let r = make_registry();
+        let h = r.register(
+            "gitops-engine",
+            JobKind::GitOpsSync,
+            Some("stellar-system".into()),
+        );
+        h.start();
+        h.succeed();
+
+        let jobs = r.list(None, Some("gitops_sync"));
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].name, "gitops-engine");
+        assert_eq!(jobs[0].state, JobState::Succeeded);
     }
 
     #[test]

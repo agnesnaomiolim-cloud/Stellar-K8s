@@ -187,6 +187,40 @@ pub struct RunArgs {
     /// Run preflight checks and exit without starting the operator
     #[arg(long, env = "PREFLIGHT_ONLY")]
     pub preflight_only: bool,
+
+    /// Enable the GitOps deployment engine.
+    ///
+    /// The operator polls the tracking Git branch for configuration changes and
+    /// automatically applies Captive Core / Horizon ConfigMaps. Disabled nodes
+    /// can also flip this at runtime via the `enable_gitops` feature flag.
+    /// Env: ENABLE_GITOPS
+    #[arg(long, env = "ENABLE_GITOPS")]
+    pub enable_gitops: bool,
+
+    /// GitHub repository (`owner/repo`) used as the GitOps source of truth.
+    /// Env: GITOPS_REPO
+    #[arg(long, env = "GITOPS_REPO")]
+    pub gitops_repo: Option<String>,
+
+    /// Tracking branch the GitOps engine polls. Env: GITOPS_BRANCH
+    #[arg(long, env = "GITOPS_BRANCH", default_value = "main")]
+    pub gitops_branch: String,
+
+    /// Repository path containing node manifest directories. Env: GITOPS_PATH
+    #[arg(long, env = "GITOPS_PATH", default_value = "clusters")]
+    pub gitops_path: String,
+
+    /// Seconds between Git branch polls. Env: GITOPS_POLL_INTERVAL_SECS
+    #[arg(
+        long,
+        env = "GITOPS_POLL_INTERVAL_SECS",
+        default_value_t = stellar_k8s::controller::gitops::DEFAULT_POLL_INTERVAL_SECS
+    )]
+    pub gitops_poll_interval_secs: u64,
+
+    /// GitHub API token for higher rate limits. Env: GITOPS_TOKEN
+    #[arg(long, env = "GITOPS_TOKEN")]
+    pub gitops_token: Option<String>,
 }
 
 impl RunArgs {

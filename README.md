@@ -23,6 +23,7 @@ Designed for high availability, type safety, and minimal footprint.
 - **📊 Real-time SCP Analytics**: High-throughput streaming of SCP messages to Kafka for network topology analysis and quorum health monitoring.
 - **📈 Multi-Cluster Comparison**: CLI tool for comparing performance metrics (TPS, Ledger Time) between clusters in real-time with HTML/JSON reports.
 - **GitOps Ready**: Fully compatible with ArgoCD and Flux for declarative infrastructure management.
+- **🚀 GitOps Deployment Engine**: Built-in GitOps synchronizer (Issue #286) that polls a GitHub repo as the single source of truth, auto-applies Captive Core and Horizon ConfigMaps per commit, and automatically rolls back misconfigurations that crash node sync — within minutes, no human in the loop.
 - **📈 Observable by Default**: Native Prometheus metrics integration for monitoring node health, ledger sync status, and resource usage.
 - **⚡ Soroban Ready**: First-class support for Soroban RPC nodes with captive core configuration.
 
@@ -266,6 +267,7 @@ data:
   enable_peer_discovery: "true"
   enable_archive_health: "true"
   enable_soroban_metrics: "true"
+  enable_gitops: "false"
 ```
 
 | Flag                     | Default | Description                         |
@@ -276,6 +278,7 @@ data:
 | `enable_peer_discovery`  | `true`  | Automatic peer discovery            |
 | `enable_archive_health`  | `true`  | History archive health checks       |
 | `enable_soroban_metrics` | `true`  | Soroban-specific Prometheus metrics |
+| `enable_gitops`          | `false` | GitOps deployment engine (requires `gitops.repo`; see [docs/gitops.md](docs/gitops.md)) |
 
 When using the Helm chart, set flags via `values.yaml`:
 

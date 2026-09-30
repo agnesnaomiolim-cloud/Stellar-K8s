@@ -107,6 +107,11 @@ pub enum Error {
     /// An unexpected internal state error that doesn't fit other categories.
     #[error("[SK8S-022] Internal error: {0}")]
     InternalError(String),
+
+    /// Failure within the GitOps deployment engine (GitHub API failures,
+    /// manifest rendering errors, or failed ConfigMap synchronization).
+    #[error("[SK8S-023] GitOps error: {0}")]
+    GitOpsError(String),
 }
 
 /// Result type alias for operator operations
@@ -154,6 +159,7 @@ impl Error {
             Error::ZipError(e) => format!("[SK8S-020] Zip error: {e}"),
             Error::NetworkSafetyViolation(v) => format!("[SK8S-021] Network safety violation: {v}"),
             Error::InternalError(msg) => format!("[SK8S-022] Internal error: {msg}"),
+            Error::GitOpsError(msg) => format!("[SK8S-023] GitOps error: {msg}"),
         }
     }
 }

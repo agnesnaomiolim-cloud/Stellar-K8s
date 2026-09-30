@@ -12,6 +12,7 @@
 //! | `enable_peer_discovery` | `true` | Enable automatic peer discovery |
 //! | `enable_archive_health` | `true` | Enable history archive health checks |
 //! | `enable_soroban_metrics` | `true` | Enable Soroban-specific Prometheus metrics |
+//! | `enable_gitops` | `false` | Enable the GitOps deployment engine (GitHub-polling sync + auto-rollback) |
 //!
 //! # ConfigMap Example
 //!
@@ -61,6 +62,8 @@ pub struct FeatureFlags {
     pub enable_archive_health: bool,
     /// Enable Soroban-specific Prometheus metrics collection.
     pub enable_soroban_metrics: bool,
+    /// Enable the GitOps deployment engine (GitHub-polling ConfigMap sync).
+    pub enable_gitops: bool,
 }
 
 impl Default for FeatureFlags {
@@ -72,6 +75,7 @@ impl Default for FeatureFlags {
             enable_peer_discovery: true,
             enable_archive_health: true,
             enable_soroban_metrics: true,
+            enable_gitops: false,
         }
     }
 }
@@ -97,6 +101,7 @@ impl FeatureFlags {
                 "enable_soroban_metrics",
                 defaults.enable_soroban_metrics,
             ),
+            enable_gitops: parse("enable_gitops", defaults.enable_gitops),
         }
     }
 }
@@ -227,6 +232,7 @@ fn log_flag_changes(old: &FeatureFlags, new: &FeatureFlags, configmap_name: &str
     log_if_changed!(enable_peer_discovery);
     log_if_changed!(enable_archive_health);
     log_if_changed!(enable_soroban_metrics);
+    log_if_changed!(enable_gitops);
 }
 
 #[cfg(test)]
@@ -249,6 +255,9 @@ mod tests {
         assert!(flags.enable_peer_discovery);
         assert!(flags.enable_archive_health);
         assert!(flags.enable_soroban_metrics);
+        // GitOps is opt-in: it must never be enabled by default because it
+        // mutates node configuration from an external source.
+        assert!(!flags.enable_gitops);
     }
 
     #[test]
@@ -260,6 +269,7 @@ mod tests {
             ("enable_peer_discovery", "true"),
             ("enable_archive_health", "true"),
             ("enable_soroban_metrics", "true"),
+            ("enable_gitops", "true"),
         ]);
         let flags = FeatureFlags::from_config_map_data(&d);
         assert!(flags.enable_cve_scanning);
@@ -268,6 +278,7 @@ mod tests {
         assert!(flags.enable_peer_discovery);
         assert!(flags.enable_archive_health);
         assert!(flags.enable_soroban_metrics);
+        assert!(flags.enable_gitops);
     }
 
     #[test]
@@ -279,6 +290,7 @@ mod tests {
             ("enable_peer_discovery", "false"),
             ("enable_archive_health", "false"),
             ("enable_soroban_metrics", "false"),
+            ("enable_gitops", "false"),
         ]);
         let flags = FeatureFlags::from_config_map_data(&d);
         assert!(!flags.enable_cve_scanning);
@@ -287,6 +299,7 @@ mod tests {
         assert!(!flags.enable_peer_discovery);
         assert!(!flags.enable_archive_health);
         assert!(!flags.enable_soroban_metrics);
+        assert!(!flags.enable_gitops);
     }
 
     #[test]

@@ -17,3 +17,4 @@ data:
   enable_archive_health: {{ .Values.featureFlags.enableArchiveHealth | quote }}
   enable_soroban_metrics: {{ .Values.featureFlags.enableSorobanMetrics | quote }}
   enable_scp_topology: {{ .Values.featureFlags.enableScpTopology | quote }}
+  enable_gitops: {{ .Values.featureFlags.enableGitops | default false | quote }}

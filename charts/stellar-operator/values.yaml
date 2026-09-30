@@ -206,6 +206,29 @@ featureFlags:
   enablePeerDiscovery: true
   enableArchiveHealth: true
   enableSorobanMetrics: false
+  # GitOps deployment engine (Issue #286): polls a GitHub repo for
+  # configuration changes and auto-applies Captive Core / Horizon ConfigMaps
+  # with health-guarded rollback. Requires gitops.repo to be set.
+  enableGitops: false
+
+# GitOps deployment engine configuration (used when featureFlags.enableGitops
+# is true). The engine polls the tracking branch and applies node ConfigMaps;
+# a health watchdog automatically reverts commits that crash node sync.
+gitops:
+  # Master switch: injects --enable-gitops and GITOPS_* env vars.
+  enabled: false
+  # GitHub repository in owner/repo format acting as the source of truth.
+  repo: ""
+  # Tracking branch to poll.
+  branch: main
+  # Repository path containing one directory per StellarNode.
+  path: clusters
+  # Seconds between branch polls.
+  pollIntervalSecs: 30
+  # Optional: name of an existing Secret containing a GitHub token (raises the
+  # API rate limit from 60 to 5000 requests/hour). Key defaults to `token`.
+  tokenExistingSecret: ""
+  tokenSecretKey: token
 
 
 security:

@@ -46,6 +46,23 @@ spec:
             - name: OTEL_TRACES_SAMPLER_ARG
               value: {{ .Values.otel.samplingRatio | quote }}
             {{- end }}
+            {{- if .Values.gitops.enabled }}
+            - name: GITOPS_REPO
+              value: {{ .Values.gitops.repo | quote }}
+            - name: GITOPS_BRANCH
+              value: {{ .Values.gitops.branch | quote }}
+            - name: GITOPS_PATH
+              value: {{ .Values.gitops.path | quote }}
+            - name: GITOPS_POLL_INTERVAL_SECS
+              value: {{ .Values.gitops.pollIntervalSecs | quote }}
+            {{- if .Values.gitops.tokenExistingSecret }}
+            - name: GITOPS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gitops.tokenExistingSecret }}
+                  key: {{ .Values.gitops.tokenSecretKey }}
+            {{- end }}
+            {{- end }}
           volumeMounts:
             - name: operator-config
               mountPath: /etc/stellar-operator
@@ -59,6 +76,13 @@ spec:
             - --metrics-port={{ .Values.operator.metricsPort }}
             {{- if .Values.operator.watchNamespace }}
             - --watch-namespace={{ .Values.operator.watchNamespace }}
+            {{- end }}
+            {{- if .Values.gitops.enabled }}
+            - --enable-gitops
+            - --gitops-repo={{ .Values.gitops.repo }}
+            - --gitops-branch={{ .Values.gitops.branch }}
+            - --gitops-path={{ .Values.gitops.path }}
+            - --gitops-poll-interval-secs={{ .Values.gitops.pollIntervalSecs }}
             {{- end }}
           ports:
             - name: http

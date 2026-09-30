@@ -493,6 +493,30 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
         OPERATOR_READY_STATUS.clone(),
     );
 
+    registry.register(
+        "stellar_gitops_syncs_total",
+        "Total number of Git commits applied by the GitOps deployment engine",
+        GITOPS_SYNCS_TOTAL.clone(),
+    );
+
+    registry.register(
+        "stellar_gitops_rollbacks_total",
+        "Total number of automated health rollbacks executed by the GitOps engine",
+        GITOPS_ROLLBACKS_TOTAL.clone(),
+    );
+
+    registry.register(
+        "stellar_gitops_rate_limit_pauses_total",
+        "Total number of GitOps polls skipped because the GitHub API rate limit was exhausted",
+        GITOPS_RATE_LIMIT_PAUSES_TOTAL.clone(),
+    );
+
+    registry.register(
+        "stellar_gitops_sync_phase",
+        "Current GitOps engine phase (0=idle, 1=applying, 2=observing, 3=healthy, 4=rolling_back, 5=rolled_back)",
+        GITOPS_SYNC_PHASE.clone(),
+    );
+
     registry
 });
 
@@ -1101,6 +1125,48 @@ pub static OPERATOR_UPTIME_SECONDS: Lazy<Counter<u64, AtomicU64>> = Lazy::new(Co
 
 /// Gauge tracking whether the operator is ready (1 = ready, 0 = not ready).
 pub static OPERATOR_READY_STATUS: Lazy<Gauge<i64, AtomicI64>> = Lazy::new(Gauge::default);
+
+/// Counter tracking Git commits successfully applied by the GitOps engine.
+pub static GITOPS_SYNCS_TOTAL: Lazy<Counter<u64, AtomicU64>> = Lazy::new(Counter::default);
+
+/// Counter tracking automated health rollbacks executed by the GitOps engine.
+pub static GITOPS_ROLLBACKS_TOTAL: Lazy<Counter<u64, AtomicU64>> = Lazy::new(Counter::default);
+
+/// Counter tracking polls skipped due to GitHub API rate limits.
+pub static GITOPS_RATE_LIMIT_PAUSES_TOTAL: Lazy<Counter<u64, AtomicU64>> =
+    Lazy::new(Counter::default);
+
+/// Gauge tracking the current GitOps engine phase.
+pub static GITOPS_SYNC_PHASE: Lazy<Gauge<i64, AtomicI64>> = Lazy::new(Gauge::default);
+
+/// Record one successful GitOps sync (new commit applied).
+pub fn record_gitops_sync() {
+    GITOPS_SYNCS_TOTAL.inc();
+}
+
+/// Record one automated GitOps health rollback.
+pub fn record_gitops_rollback() {
+    GITOPS_ROLLBACKS_TOTAL.inc();
+}
+
+/// Record one rate-limit pause of the GitOps poll loop.
+pub fn record_gitops_rate_limit_pause() {
+    GITOPS_RATE_LIMIT_PAUSES_TOTAL.inc();
+}
+
+/// Set the GitOps phase gauge from a [`crate::controller::gitops::SyncPhase`].
+pub fn set_gitops_phase(phase: &crate::controller::gitops::SyncPhase) {
+    use crate::controller::gitops::SyncPhase as P;
+    let v = match phase {
+        P::Idle => 0,
+        P::Applying => 1,
+        P::Observing => 2,
+        P::Healthy => 3,
+        P::RollingBack => 4,
+        P::RolledBack => 5,
+    };
+    GITOPS_SYNC_PHASE.set(v);
+}
 
 /// Initialise the `stellar_operator_info` gauge with build-time labels.
 /// Call once at startup after the registry is first accessed.

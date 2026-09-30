@@ -277,6 +277,44 @@ pub async fn run_operator(args: RunArgs) -> Result<(), Error> {
         });
     }
 
+    // Start the GitOps deployment engine (Issue #286)
+    if args.enable_gitops {
+        let gitops_config = controller::gitops::GitOpsConfig {
+            repo: args.gitops_repo.clone().unwrap_or_default(),
+            branch: args.gitops_branch.clone(),
+            manifests_path: args.gitops_path.clone(),
+            token: args.gitops_token.clone(),
+            poll_interval_secs: args.gitops_poll_interval_secs,
+            ..Default::default()
+        };
+        match controller::gitops::GitOpsEngine::new(gitops_config) {
+            engine if engine.config().validate().is_ok() => {
+                let gitops_client = client.clone();
+                let gitops_leader = Arc::clone(&is_leader);
+                let gitops_registry = Arc::clone(&state.job_registry);
+                tokio::spawn(async move {
+                    let handle = gitops_registry.register(
+                        "gitops-engine",
+                        controller::background_jobs::JobKind::GitOpsSync,
+                        None,
+                    );
+                    handle.start();
+                    if let Err(e) = engine.run(gitops_client, gitops_leader).await {
+                        handle.fail(format!("GitOps engine stopped: {e}"));
+                        tracing::error!("GitOps engine error: {:?}", e);
+                    }
+                });
+            }
+            _ => {
+                warn!(
+                    "--enable-gitops set but GITOPS_REPO is missing/invalid; GitOps engine NOT started"
+                );
+            }
+        }
+    } else {
+        info!("GitOps deployment engine disabled (use --enable-gitops to opt in)");
+    }
+
     // Start the REST API server and optional mTLS certificate rotation
     #[cfg(feature = "rest-api")]
     {
