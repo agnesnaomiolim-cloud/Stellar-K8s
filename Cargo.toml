@@ -204,3 +204,16 @@ path = "src/bin/stellar-fork-detector.rs"
 required-features = ["rest-api", "metrics"]
 
 [workspace]
+
+members = [
+    "contracts/cl-amm",
+]
+
+# Contract workspace member for the issue #285 concentrated-liquidity
+# AMM (CLAMM).  Built for wasm32-unknown-unknown to run inside the
+# WASM execution sandbox (Wasmtime/Soroban).  This crate is contract
+# code only — it has no dependency on the Kubernetes operator crates
+# in the workspace root, so it compiles on a bare Rust toolchain plus
+# the `wasm32-unknown-unknown` target.
+
+[workspace.dependencies]

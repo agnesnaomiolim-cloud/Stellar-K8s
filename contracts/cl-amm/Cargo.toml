@@ -1,0 +1,36 @@
+[package]
+name = "cl-amm"
+version = "0.1.0"
+edition = "2021"
+description = "Concentrated Liquidity AMM (CLAMM) for Stellar-K8s"
+license = "Apache-2.0"
+repository = "https://github.com/stellar/stellar-k8s"
+readme = "README.md"
+
+[dependencies]
+
+[lib]
+name = "clamm"
+path = "src/lib.rs"
+
+[features]
+default = []
+
+# Build the contract for WASM32 execution (Wasmtime/Soroban runtime).
+wasm = ["wasm32-unknown-unknown"]
+
+# Enable proptest fuzz targets.
+fuzz = []
+
+[profile.release]
+# Strip debug symbols so the WASM binary is as small as possible for
+# WASM execution limits (fuel/size). The contract's hot loop is
+# arithmetic-only; debug captures and panics are unavailable in
+# release so we always use `panic = "abort"`.
+opt-level = "z"
+overflow-checks = false
+debug = false
+debug-assertions = false
+codegen-units = 1
+lto = true
+panic = "abort"

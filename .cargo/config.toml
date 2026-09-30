@@ -1,3 +1,7 @@
-[env]
-# Required by k8s-openapi build script when dependency graph disables default features.
-K8S_OPENAPI_ENABLED_VERSION = "1.30"
+[build]
+# Use the system linker for the wasm32-unknown-unknown target's
+# host-side stubs (if any) and to let the root build script pick up
+# the K8S_OPENAPI_ENABLED_VERSION env var.
+# The CLAMM crate is compiled for wasm32-unknown-unknown for the
+# contract runtime (Wasmtime/Soroban).  Rustup is expected to have the
+# target installed (`rustup target add wasm32-unknown-unknown`).
