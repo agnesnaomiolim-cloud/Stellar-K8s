@@ -1,8 +1,15 @@
-//! Fail-open JSON-RPC proxy for Soroban state reads.
+//! Fail-open JSON-RPC proxy for Soroban state reads and simulations.
 //!
-//! The proxy caches only idempotent read methods. Every cache operation is
+//! The proxy caches idempotent read methods plus `simulateTransaction`
+//! responses (see [`stellar_k8s::simulation_cache`]). Every cache operation is
 //! best-effort: a malformed key, oversized response, or cache lock failure is
 //! ignored and the request is sent to the upstream RPC endpoint unchanged.
+//!
+//! Simulation entries are keyed on the full request plus the pinned ledger
+//! sequence and are invalidated on every ledger increment, whichever source
+//! notices it first: a POST to `/internal/ledger-bump` (call it from the
+//! operator or an ingress-side watcher) or the built-in poller that asks the
+//! upstream for `getLatestLedger` every few seconds.
 
 use axum::{
     body::Bytes,
@@ -22,16 +29,19 @@ use std::{
         Arc,
     },
 };
+use stellar_k8s::simulation_cache::{SimCacheKey, SimulationCache, SimulationCacheConfig};
 use stellar_wasm_cache::{CacheConfig, StateCache};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 const DEFAULT_LISTEN: &str = "0.0.0.0:18000";
 const DEFAULT_UPSTREAM: &str = "http://127.0.0.1:8000";
+const DEFAULT_LEDGER_POLL_SECS: u64 = 5;
 
 #[derive(Clone)]
 struct AppState {
     cache: Arc<Mutex<StateCache>>,
+    sim_cache: SimulationCache,
     client: reqwest::Client,
     upstream: String,
     upstream_requests: Arc<AtomicU64>,
@@ -60,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState {
         cache: Arc::new(Mutex::new(cache)),
+        sim_cache: SimulationCache::new(SimulationCacheConfig::default()),
         client: reqwest::Client::new(),
         upstream,
         upstream_requests: Arc::new(AtomicU64::new(0)),
@@ -69,12 +80,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/readyz", get(health))
         .route("/stats", get(stats))
         .route("/", post(proxy))
-        .with_state(state);
+        .route("/internal/ledger-bump", post(ledger_bump))
+        .with_state(state.clone());
+    spawn_ledger_poller(state);
     let address: SocketAddr = listen.parse()?;
     info!(%address, "Starting Soroban fail-open cache proxy");
     let listener = tokio::net::TcpListener::bind(address).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Background task that polls the upstream for the latest ledger and runs the
+/// simulation-cache invalidation hook whenever the sequence advances.
+///
+/// This is a convenience for deployments without an external ledger watcher;
+/// the `/internal/ledger-bump` endpoint remains authoritative and can push
+/// updates faster than the poll interval. Set `SOROBAN_CACHE_LEDGER_POLL_SECS=0`
+/// to disable polling entirely (external-hook-only mode).
+fn spawn_ledger_poller(state: AppState) {
+    let poll_secs = std::env::var("SOROBAN_CACHE_LEDGER_POLL_SECS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LEDGER_POLL_SECS);
+    if poll_secs == 0 {
+        info!("Ledger polling disabled; relying on /internal/ledger-bump");
+        return;
+    }
+    tokio::spawn(async move {
+        let mut last_seen: Option<u64> = None;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(poll_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let latest = latest_upstream_ledger(&state).await;
+            match (latest, last_seen) {
+                (Some(current), Some(previous)) if current > previous => {
+                    state.sim_cache.on_ledger_increment(current).await;
+                    last_seen = Some(current);
+                }
+                (Some(current), _) => last_seen = Some(current),
+                // Upstream unreachable: keep the previous mark. Fail-open —
+                // the poller never panics and never blocks request handling.
+                (None, _) => {}
+            }
+        }
+    });
+}
+
+/// Ask the upstream RPC for the latest ledger sequence. `None` on any
+/// failure or unexpected shape — the poller treats that as "no news".
+async fn latest_upstream_ledger(state: &AppState) -> Option<u64> {
+    let response = state
+        .client
+        .post(&state.upstream)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(r#"{"jsonrpc":"2.0","id":"ledger-poll","method":"getLatestLedger"}"#)
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body: Value = response.json().await.ok()?;
+    body.pointer("/result/latestLedger")?.as_u64()
+}
+
+/// Parse a `/internal/ledger-bump` body: `{"ledger": <u64>}` (or
+/// `"ledgerSeq"`). Returns `None` for anything else.
+fn parse_ledger_bump(body: &[u8]) -> Option<u64> {
+    let value: Value = serde_json::from_slice(body).ok()?;
+    let object = value.as_object()?;
+    object
+        .get("ledger")
+        .or_else(|| object.get("ledgerSeq"))?
+        .as_u64()
 }
 
 fn load_config() -> CacheConfig {
@@ -103,12 +182,20 @@ async fn health() -> StatusCode {
 async fn stats(State(state): State<AppState>) -> Response {
     let cache = state.cache.lock().await;
     let cache_stats = cache.stats();
+    let sim_stats = state.sim_cache.stats().await;
     let body = serde_json::json!({
         "hits": cache_stats.hits,
         "misses": cache_stats.misses,
         "entries": cache_stats.entries,
         "storedBytes": cache_stats.stored_bytes,
         "upstreamRequests": state.upstream_requests.load(Ordering::Relaxed),
+        "sim": {
+            "hits": sim_stats.hits,
+            "misses": sim_stats.misses,
+            "stores": sim_stats.stores,
+            "invalidations": sim_stats.invalidations,
+            "entries": state.sim_cache.len().await,
+        },
     });
     json_response(
         StatusCode::OK,
@@ -116,8 +203,28 @@ async fn stats(State(state): State<AppState>) -> Response {
     )
 }
 
+/// Push-driven invalidation hook: `POST /internal/ledger-bump` with
+/// `{"ledger": N}` whenever the caller observes a new ledger. Response is
+/// always 200 with `"ok"` or 400 on a malformed body — this endpoint never
+/// fails and never blocks on the cache.
+async fn ledger_bump(State(state): State<AppState>, body: Bytes) -> Response {
+    match parse_ledger_bump(&body) {
+        Some(ledger) => {
+            state.sim_cache.on_ledger_increment(ledger).await;
+            text_response(StatusCode::OK, "ok")
+        }
+        None => text_response(StatusCode::BAD_REQUEST, "expected {\"ledger\": <u64>}"),
+    }
+}
+
 async fn proxy(State(state): State<AppState>, body: Bytes) -> Response {
     let request_id = request_id(&body);
+    let sim_key = SimCacheKey::from_request(&body);
+    if let Some(key) = &sim_key {
+        if let Some(cached) = state.sim_cache.get(key).await {
+            return json_response(StatusCode::OK, rewrite_response_id(cached.body, request_id));
+        }
+    }
     let cache_key = cache_key(&body);
     if let Some(key) = &cache_key {
         if let Some(cached) = cache_get(&state, key).await {
@@ -157,6 +264,9 @@ async fn proxy(State(state): State<AppState>, body: Bytes) -> Response {
     // Cache failures are deliberately ignored. The upstream result is already
     // available and must be returned regardless of cache state.
     if status.is_success() && is_cacheable_response(&response_body) {
+        if let Some(key) = sim_key {
+            state.sim_cache.insert(key, response_body.to_vec()).await;
+        }
         if let Some(key) = cache_key {
             cache_insert(&state, key, response_body.to_vec()).await;
         }
