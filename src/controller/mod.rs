@@ -1,6 +1,7 @@
 
 
 pub mod autoscaler;
+pub mod catchup;
 pub mod benchmark;
 pub mod blue_green;
 
@@ -203,4 +204,10 @@ pub use topology::{
     build_statefulset_patch, discover_cluster_topology, enforce_namespace, enforce_on_statefulset,
     ClusterTopology, EnforcementResult, TopologyMode, TopologyRuleSet, TopologySpreadConstraint,
     WhenUnsatisfiable,
+};
+
+// Parallelized catchup downloader (issue: parallelized-catchup-data-downloader)
+pub use catchup::{
+    DownloadJob, DownloadManager, DownloadManagerConfig, DownloadResult, DownloadStats,
+    WorkerPool, WorkerPoolConfig, WorkerPoolStats,
 };
