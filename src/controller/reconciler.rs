@@ -430,6 +430,10 @@ impl ControllerState {
 /// ```
 pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
     let client = state.client.clone();
+    let recovery_state = state.clone();
+    tokio::spawn(async move {
+        super::finalizers::cleanup::run_recovery_controller(recovery_state).await;
+    });
     let stellar_nodes: Api<StellarNode> = if let Some(ns) = &state.watch_namespace {
         Api::namespaced(client.clone(), ns)
     } else {
@@ -1311,6 +1315,17 @@ fn reconcile(
                     {
                         fail_phase(&phases, &format!("cleanup failed: {err}"));
                         return Err(err);
+                    }
+
+                    let cloud = super::finalizers::cloud_verify::RealCloudStorageApi::new();
+                    if !super::finalizers::cleanup::storage_cleanup_complete(
+                        &client,
+                        &obj,
+                        &cloud,
+                    )
+                    .await
+                    {
+                        return Ok(Action::requeue(Duration::from_secs(30)));
                     }
 
                     let patch = serde_json::json!({
@@ -3518,15 +3533,14 @@ pub(crate) fn cleanup_stellar_node(
 
         // 7. Delete PVC based on retention policy
         if node.spec.should_delete_pvc() {
+            super::finalizers::cleanup::persist_volume_identity_before_delete(&client, &node)
+                .await?;
             info!(
                 "Deleting PVC for node: {}/{} (retention policy: Delete)",
                 namespace, name
             );
             apply_or_emit!(&ctx, &node, ActionType::Delete, "PVC", move |client: Client, ctx: Arc<ControllerState>, node: Arc<StellarNode>| async move {
-                if let Err(e) = resources::delete_pvc(&client, &node, ctx.dry_run).await {
-                    warn!("Failed to delete PVC: {:?}", e);
-                }
-                Ok(())
+                resources::delete_pvc(&client, &node, ctx.dry_run).await
             })
             .await?;
         } else {

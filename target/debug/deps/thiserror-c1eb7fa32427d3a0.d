@@ -1,0 +1,14 @@
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\thiserror-c1eb7fa32427d3a0.d: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\aserror.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\display.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\var.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\private.rs C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\thiserror-e196c11b7df54c50\out/private.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libthiserror-c1eb7fa32427d3a0.rlib: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\aserror.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\display.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\var.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\private.rs C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\thiserror-e196c11b7df54c50\out/private.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libthiserror-c1eb7fa32427d3a0.rmeta: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\aserror.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\display.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\var.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\private.rs C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\thiserror-e196c11b7df54c50\out/private.rs
+
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\lib.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\aserror.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\display.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\var.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.18\src\private.rs:
+C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\thiserror-e196c11b7df54c50\out/private.rs:
+
+# env-dep:OUT_DIR=C:\\Users\\DELL 7400\\Desktop\\Stellar-K8s\\target\\debug\\build\\thiserror-e196c11b7df54c50\\out

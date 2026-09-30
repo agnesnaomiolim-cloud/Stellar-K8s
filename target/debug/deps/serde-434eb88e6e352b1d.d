@@ -1,0 +1,14 @@
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\serde-434eb88e6e352b1d.d: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\serde-04bf8a31b32c0d41\out/private.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libserde-434eb88e6e352b1d.rlib: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\serde-04bf8a31b32c0d41\out/private.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libserde-434eb88e6e352b1d.rmeta: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\serde-04bf8a31b32c0d41\out/private.rs
+
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs:
+C:\Users\DELL\ 7400\Desktop\Stellar-K8s\target\debug\build\serde-04bf8a31b32c0d41\out/private.rs:
+
+# env-dep:OUT_DIR=C:\\Users\\DELL 7400\\Desktop\\Stellar-K8s\\target\\debug\\build\\serde-04bf8a31b32c0d41\\out

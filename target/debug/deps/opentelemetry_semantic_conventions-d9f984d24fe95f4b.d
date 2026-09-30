@@ -1,0 +1,9 @@
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\opentelemetry_semantic_conventions-d9f984d24fe95f4b.d: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\resource.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\trace.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libopentelemetry_semantic_conventions-d9f984d24fe95f4b.rlib: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\resource.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\trace.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libopentelemetry_semantic_conventions-d9f984d24fe95f4b.rmeta: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\resource.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\trace.rs
+
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\lib.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\resource.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\opentelemetry-semantic-conventions-0.13.0\src\trace.rs:

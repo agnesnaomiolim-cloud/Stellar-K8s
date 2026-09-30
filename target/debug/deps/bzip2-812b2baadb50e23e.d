@@ -1,0 +1,11 @@
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\bzip2-812b2baadb50e23e.d: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\mem.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\bufread.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\read.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\write.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libbzip2-812b2baadb50e23e.rlib: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\mem.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\bufread.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\read.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\write.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libbzip2-812b2baadb50e23e.rmeta: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\mem.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\bufread.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\read.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\write.rs
+
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\lib.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\mem.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\bufread.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\read.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\bzip2-0.5.2\src\write.rs:

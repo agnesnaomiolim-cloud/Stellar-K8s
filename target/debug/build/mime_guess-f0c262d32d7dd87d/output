@@ -1,0 +1,1 @@
+cargo:rustc-env=MIME_TYPES_GENERATED_PATH=C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\build\mime_guess-f0c262d32d7dd87d\out\mime_types_generated.rs

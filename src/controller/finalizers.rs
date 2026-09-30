@@ -17,6 +17,9 @@
 //! 2. Persistent Volumes/Claims are deleted based on retention policy
 //! 3. External resources (cloud storage, DNS) are properly removed
 
+pub(crate) mod cleanup;
+pub(crate) mod cloud_verify;
+
 use kube::{
     api::{Api, Patch, PatchParams},
     Client, ResourceExt,

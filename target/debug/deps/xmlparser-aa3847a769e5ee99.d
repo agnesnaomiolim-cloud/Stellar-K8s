@@ -1,0 +1,11 @@
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\xmlparser-aa3847a769e5ee99.d: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\error.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\stream.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\strspan.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\xmlchar.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libxmlparser-aa3847a769e5ee99.rlib: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\error.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\stream.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\strspan.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\xmlchar.rs
+
+C:\Users\DELL 7400\Desktop\Stellar-K8s\target\debug\deps\libxmlparser-aa3847a769e5ee99.rmeta: C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\lib.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\error.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\stream.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\strspan.rs C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\xmlchar.rs
+
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\lib.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\error.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\stream.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\strspan.rs:
+C:\Users\DELL\ 7400\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\xmlparser-0.13.6\src\xmlchar.rs:
