@@ -100,6 +100,7 @@ mod csi_snapshot;
 pub mod snapshot;
 pub mod snapshot_worker;
 pub mod spot_drain;
+pub mod storage;
 pub mod storage_migration;
 pub(crate) mod sync_scale;
 pub(crate) mod sync_state_monitor;

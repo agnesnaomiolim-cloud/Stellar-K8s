@@ -5,6 +5,850 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
+## Chart v2.19.0 (2026-10-02) [minor]
+
+• Merge pull request #350 from moveeswift-uncap/fix/issue-245-enhancement-zero-downtime-egress-traffic
+✨ feat: zero-downtime egress traffic shaping controller
+🐛 fix: ## [Enhancement] Zero-Downtime Egress Traffic Shaping Contro (#245)
+
+
+## Chart v2.18.0 (2026-10-02) [minor]
+
+• Merge pull request #368 from Viccodes11/enhancement/leader-election-metrics
+• [Enhancement] Automated Leader Election Failover for Operator High Availability
+• Merge pull request #359 from Charity5654/feat/331-wasm-upgrade-proxy
+✨ feat(contracts): decentralized WebAssembly upgrade proxy with 7-day timelock (#331)
+• Merge pull request #357 from soladayo21963-coder/feat/215-multisig-wallet-factory
+✨ feat(contracts): implement multi-signature wallet factory on Soroban
+• Merge pull request #398 from Senatormike001/fix/issue-227-enhancement-horizon-db-ha-replication-monitor
+✨ feat: Horizon DB replication monitor with lag alerts
+• Merge pull request #356 from oycodes/fix/issue-130-documentation-disaster-recovery-failover
+📝 docs: add DR failover and snapshot restoration runbook
+• Merge pull request #358 from devogechukwu/docs/pvc-optimization
+📝 docs: Optimize PVCs for Captive Core sync
+• Merge pull request #361 from Rayhab2000/feat/296-yield-bearing-stablecoin
+✨ feat(contracts): add programmable yield-bearing stablecoin (#296)
+• Merge pull request #364 from Isihaq123/docs/319-gitops-argocd
+📝 docs(#319): GitOps deployment architecture via ArgoCD
+• Merge pull request #365 from danielchukuma-dev/feat/333-cross-shard-liquidity-state-verifier
+✨ feat(contract): cross-shard liquidity state verifier (Closes #333)
+• Merge pull request #367 from Viccodes11/dr-datacenter-recovery
+📝 docs: add disaster recovery runbook for datacenter loss and vault recovery script
+• Merge pull request #363 from Adjutant500/feature/289-soroban-gas-metering-calibrator
+✨ feat(tools): Automated Soroban Gas Metering Calibrator
+• Merge pull request #370 from AGWAM001/docs/issue-295-chaos-mesh-strategy
+📝 docs(chaos): Chaos Mesh chaos engineering strategy for the operator (issue #295)
+• Merge pull request #374 from Nuruddeen61/main
+📝 docs: zero-downtime protocol upgrade runbook (#293)
+• Merge pull request #371 from Chummy-debug/security/issue-309-enhancement-kubectl-stellar-cli-extension-for
+✨ feat: kubectl-stellar CLI for validator health diagnostics
+🐛 fix: ## [Enhancement] Horizon DB HA Replication Monitor (Frontend (#227)
+• Fix formatting issues in operations documentation
+• security: ## [Enhancement] `kubectl-stellar` CLI Extension for Validat (#309)
+📝 docs(chaos): add Chaos Mesh chaos engineering strategy and example experiments
+• Add leader status Prometheus gauge and metric updates for HA leader election
+📝 docs: add disaster recovery runbook for datacenter loss and vault recovery script
+✨ feat(contract): cross-shard liquidity state verifier (#333)
+• Implements issue #333 — Cross-Shard Liquidity State Verifier (200-point
+• epic).  A new Soroban coordinating contract that enables atomic multi-AMM
+• arbitrage trades across any number of independent pool contracts with
+• absolute cryptographic guarantees against partial execution.
+• ## New contract: contracts/cross-shard/
+• ### src/coordinator.rs
+• Core orchestration logic:
+• - initialize(): one-time setup with admin address
+• - execute_atomic_swap(initiator, transitions): ordered Vec<ShardTransition>
+•   execution with all-or-nothing atomicity
+•   * Validates inputs: MIN_TRANSITIONS=2, MAX_TRANSITIONS=16, deadline, amount
+•   * Acquires advisory locks on all target pools atomically via acquire_all()
+•   * Sets InFlight reentrancy guard before any cross-contract invocation
+•   * Invokes each AMM leg via env.invoke_contract()
+•   * Verifies min_out slippage bound after each leg
+•   * On any failure: calls env.panic_with_error() to force a complete
+•     transaction rollback — all state changes from all preceding legs revert
+•   * On success: persists SwapSnapshot(Committed), releases locks, clears guard
+•   * Emits structured events at every stage (swap_ok, swap_fail, leg_exec,
+•     leg_ok)
+• - set_paused(), transfer_admin(), get_admin(), is_paused(), is_inflight(),
+•   last_swap_id(), get_swap_snapshot()
+• - Zero multi-threading: no Mutex/RwLock, no async, fully compatible with
+•   Stellar Core's single-threaded sequential scheduler
+• ### src/locks.rs
+• Advisory pool-lock state machine:
+• - acquire(pool, swap_id, ttl): writes PoolLock to persistent storage;
+•   rejects if a non-expired lock already exists
+• - release(pool): removes lock; rejects if held by a different coordinator
+• - force_release(pool): any caller may clear an expired lock (anti-DoS)
+• - acquire_all(pools, swap_id): two-phase check-then-write to prevent partial
+•   acquisition and deadlocks
+• - release_all(pools): bulk release tolerating already-gone entries
+• - is_locked(pool), read_lock(pool): non-mutating inspection
+• - LOCK_TTL_LEDGERS=60 (~5 min at 5 s/ledger)
+• - Concurrency safety note: all locking is persistent-storage writes committed
+•   atomically with the rest of the transaction; no OS primitives needed
+• ### src/types.rs
+• XDR-serialisable (#[contracttype]) domain types:
+• - DataKey enum: Admin, Paused, SwapCounter, PoolLock(Address),
+•   SwapSnapshot(u64), InFlight
+• - ShardTransition: pool, function, amount_in, min_out, token_in, token_out,
+•   deadline
+• - TransitionResult: pool, amount_out, succeeded
+• - SwapSnapshot: id, initiator, legs, start_ledger, status
+• - SwapStatus: InFlight / Committed / Reverted
+• - PoolLock: pool, held_by, acquired_at, expires_at, swap_id
+• ### src/errors.rs
+• CrossShardError (#[contracterror], #[repr(u32)]):
+• - AlreadyInitialized(1), NotInitialized(2)
+• - Unauthorized(20), NotSwapInitiator(21)
+• - TooFewTransitions(30), TooManyTransitions(31), InvalidAmount(32),
+•   DeadlineExpired(33), SlippageExceeded(34), LegInvocationFailed(35),
+•   Overflow(36)
+• - PoolAlreadyLocked(40), LockNotOwned(41), LockExpired(42), LockStillValid(43)
+• - ReentrantCall(50), ContractPaused(51)
+• ### src/lib.rs
+• #[contract] CrossShardCoordinator with full #[contractimpl]:
+• - Thin wrappers delegating to coordinator:: and locks:: modules
+• - Re-exports all public types for external consumers
+• ### src/test.rs
+• 9 integration tests using soroban-sdk testutils:
+• - MockAmm: #[contract] stub with configurable rate and deliberate-fail mode
+• - three_pool_swap_all_succeed: happy path, verifies output amounts and
+•   snapshot
+• - three_pool_swap_third_fails_all_revert: the required issue #333 validation
+•   — induces failure in AMM C, asserts AMM A and AMM B swap_count=0, locks
+•   released, InFlight cleared, SwapCounter reverted
+• - slippage_on_second_leg_reverts_all: min_out guard triggers full revert
+• - expired_deadline_rejected_before_execution: deadline check before any AMM
+•   call
+• - too_few_transitions_rejected, swap_rejected_when_paused,
+•   double_initialize_rejected, force_release_unexpired_lock_rejected,
+•   concurrent_swap_rejected_if_pool_locked
+• ### Cargo.toml
+• soroban-sdk 22.0.0 with features=["alloc"]; standalone [workspace];
+• crate-type = ["cdylib", "rlib"]; release profile: opt-level=z, lto=true,
+• panic=abort, overflow-checks=true
+• Closes #333
+📝 docs(#319): GitOps deployment architecture via ArgoCD
+• - Add docs/operations/gitops-argocd.md with complete ArgoCD integration
+•   guide covering architecture overview, Kustomize overlay structure,
+•   Captive Core upgrade verification gates (schema, compat-check,
+•   OPA/conftest, smoke test), pull-request workflow, sync wave ordering,
+•   secret management patterns, drift detection, and end-to-end
+•   validation procedure (sub-3-minute convergence check).
+• - Add examples/gitops/base/ with StellarNode skeletons for Validator,
+•   SorobanRpc, and Horizon node types and a shared kustomization.yaml.
+• - Add examples/gitops/overlays/{testnet,futurenet,mainnet}/ with
+•   environment-specific Kustomize patches. Mainnet overlay enforces
+•   retentionPolicy: Retain on all storage. Futurenet uses Delete given
+•   periodic network resets.
+• - Add examples/gitops/argocd/ with app-of-apps.yaml (bootstrap entry
+•   point), testnet-app.yaml and futurenet-app.yaml (automated sync),
+•   mainnet-app.yaml (manual sync only, requires ≥2 reviewer approvals),
+•   and a README with bootstrap and promotion commands.
+• Enforces: manual kubectl edits are forbidden; GitHub is the single
+• immutable source of truth for all node infrastructure.
+• Closes #319
+✨ feat(tools): add automated Soroban gas metering calibrator (#289)
+• Implements a standalone Rust binary at tools/gas-calibrator/ that
+• benchmarks host hardware with WASM micro-benchmarks and generates
+• dynamically-tuned Soroban gas configuration profiles.
+• Key modules:
+• - src/benchmarks.rs  – six WASM micro-benchmarks (SHA-256 hash loop,
+•   Blake3 hash loop, memory allocation, arithmetic loop, branch-heavy,
+•   memory copy) executed inside wasmtime for realistic Soroban-style
+•   overhead measurement.
+• - src/profiler.rs    – CPU affinity pinning via taskset(1), process
+•   priority tuning via renice, hardware detection (cpu count/brand/freq,
+•   RAM, OS), and a warm-up phase to prime the JIT before timing.
+• - src/main.rs        – clap CLI with --iterations, --output, --format
+•   (json|yaml), --cpu, --warmup-ms, --no-pin flags; derives Soroban CPU
+•   instruction pricing tiers from benchmark means scaled to the measured
+•   CPU frequency; emits a variance report flagging benchmarks with
+•   coefficient of variation > 5 %.
+• Output (JSON or YAML) includes:
+•   - hardware profile (CPU brand, cores, freq, RAM, OS, pinned core)
+•   - raw per-benchmark statistics (mean, stddev, p50/p95/p99)
+•   - gas_tiers mapped to Soroban host function names
+•   - variance_report with confidence levels and recommendations
+• The crate is a standalone workspace (tools/gas-calibrator/Cargo.toml)
+• following the same pattern as tools/manifest-validator.
+• Closes #289
+✨ feat(contracts): add programmable yield-bearing stablecoin (#296)
+• Implements a SEP-41-compatible Soroban stablecoin with:
+• - Programmable compliance hooks (mint/burn gate)
+•   - On-chain sanctions blacklist: permanently blocks an address from all
+•     inbound/outbound flows; removal requires a stricter multi-sig quorum
+•   - Account freeze: reversible halt on all flows for a specific address;
+•     enforced before every transfer, mint, burn, and approve
+• - Multi-sig yield distribution (distribute_yield)
+•   - Proportional allocation: balance_i * yield / total_supply_snapshot
+•   - Requires configurable k-of-n threshold from a registered signer set
+•   - Duplicate-signer detection (O(n^2) over small signer sets, no std needed)
+•   - Blacklisted/frozen recipients silently skipped to prevent a single
+•     non-compliant address from blocking an entire distribution epoch
+•   - Floor-division dust stays unminted to keep total_supply exact
+• - Storage segregation
+•   - Instance storage: admin config + multi-sig thresholds (kept small)
+•   - Persistent storage: per-address balances, allowances, flags
+•   - Thresholds live exclusively in instance storage, segregated from user data
+• - 32 tests all green (cargo test --lib)
+•   - Happy-path: mint, burn, transfer, approve/transfer_from
+•   - Compliance: blacklist and freeze block all flows end-to-end
+•   - Yield: proportional math, dust, skip restricted recipients
+•   - Multi-sig: quorum enforcement, duplicate signer rejection
+•   - Fuzz-style: 20-signer / 50-holder distribution, mass mint supply
+•     integrity, 30-holder blacklist cryptographic block verification
+• Key modules:
+•   contracts/yield-stablecoin/src/lib.rs    - contract + yield distribution
+•   contracts/yield-stablecoin/src/hooks.rs  - compliance gate
+•   contracts/yield-stablecoin/src/storage.rs - shared DataKey definitions
+•   contracts/yield-stablecoin/src/test.rs   - full test suite
+• Closes #296
+• Create arm-upgrade.sh
+✨ feat(contracts): add decentralized WebAssembly upgrade proxy (#331)
+• Implements the 7-day timelocked WASM upgrade proxy for Soroban smart
+• contracts as specified in issue #331.
+• What was implemented:
+• - contracts/upgrade-proxy/Cargo.toml
+•   Standalone Soroban workspace (separate from the root Kubernetes
+•   operator workspace), release profile set to wasm32 optimisations.
+• - upgrade_proxy/src/storage.rs
+•   UpgradeProxy-prefixed storage keys (Admin, DaoCouncil, Pending) that
+•   cannot collide with any future implementation contract's own keys.
+• - upgrade_proxy/src/error.rs
+•   Fixed-discriminant #[contracterror] enum covering all failure modes:
+•   AlreadyInitialized, NotInitialized, Unauthorized, UpgradeAlreadyPending,
+•   NoPendingUpgrade, TimelockNotElapsed, ArithmeticOverflow.
+• - upgrade_proxy/src/timelock.rs
+•   TIMELOCK_SECONDS = 604 800 (7 days). PendingUpgrade struct records
+•   wasm_hash, proposed_at, execute_after. assert_elapsed() enforces the
+•   gate using env.ledger().timestamp() (Unix seconds, robust to ledger
+•   velocity changes).
+• - upgrade_proxy/src/lib.rs
+•   UpgradeProxyContract with five public entry points:
+•   * initialize(admin, dao_council) — one-time setup.
+•   * propose_upgrade(new_wasm)      — admin uploads WASM, starts countdown.
+•   * abort_upgrade(caller)          — admin OR dao_council emergency cancel.
+•   * execute_upgrade()              — admin applies swap after 7-day window.
+•   * pending_upgrade() / admin() / dao_council() / timelock_remaining()
+•     — read-only queries for off-chain tooling and frontends.
+• All auth checks use require_auth(); at most one pending upgrade at a
+• time; storage cleared before deployer.update_current_contract_wasm() to
+• prevent re-entrancy edge-cases.
+• Closes #331
+• Create protocol-upgrades.md
+📝 docs: Optimize PVCs for Captive Core sync
+• - Add documentation analyzing stateless vs stateful pods for blockchain.
+• - Provide configurations for high IOPS StorageClasses.
+• - Delineate requirements for Horizon archival vs Active validators.
+• - Add manifest examples for high IOPS StorageClasses.
+🐛 fix: ## [Documentation] Disaster Recovery Failover & Snapshot Res (#130)
+✨ feat(contracts): implement multi-signature wallet factory on Soroban
+• - Add contracts/multisig-factory/Cargo.toml: standalone Soroban
+•   workspace using soroban-sdk =27.0.6, matching governance-vote
+•   convention.
+• - Add contracts/multisig-factory/src/lib.rs (MultisigFactory contract):
+•   * Admin-controlled WASM registration via register_wallet_wasm().
+•   * deploy_wallet() uses env.deployer().with_current_contract(salt)
+•     .deploy_v2() to instantiate independent wallet instances.
+•   * Salt-based idempotency guard (AlreadyDeployed) prevents overwriting.
+•   * Registry of deployed wallets queryable via get_wallet(salt).
+•   * wallet_count() tracks total deployments.
+•   * rotate_admin() for factory admin rotation.
+• - Add contracts/multisig-factory/src/wallet.rs (MultisigWallet contract):
+•   * Proposal queue with five kinds: Transfer, ContractCall,
+•     ThresholdChange, AddSigner, RemoveSigner.
+•   * propose_transfer / propose_contract_call / propose_threshold_change
+•     / propose_add_signer / propose_remove_signer entry points.
+•   * vote() enforces: signer-only, active proposal, no duplicate votes,
+•     expiry check. Transitions to Approved once normal threshold met.
+•   * execute() enforces: Approved state, expiry, and — for governance
+•     proposals — super-majority ⌈n×2/3⌉. Marks Executed on success,
+•     preventing replay.
+•   * cancel() restricted to original proposer; prevents execution of
+•     Cancelled proposals.
+•   * Expired proposals auto-detected on next vote/execute call.
+•   * super_majority_threshold(n) = (n*2 + 2) / 3 (integer ceiling).
+• - Add contracts/multisig-factory/src/test.rs (31 unit tests):
+•   * Factory: initialize, double-init guard, WASM registration, deploy
+•     multiple independent wallets, duplicate-salt guard, wallet_count.
+•   * Wallet: threshold-approved transfer, sub-threshold rejection,
+•     duplicate vote, non-signer vote, proposal expiry, proposer cancel,
+•     non-proposer cancel rejection, re-execution prevention.
+•   * Governance: threshold change requires super-majority (5-signer
+•     example), sub-super-majority rejection, AddSigner, RemoveSigner.
+•   * Security boundaries: Wallet A signer cannot vote on Wallet B
+•     proposals; Wallet B signer cannot propose on Wallet A.
+•   * Formula correctness: n=3→2, n=5→4, n=7→5 super-majority.
+•   * Invalid amount (≤0) and invalid threshold (0, >n) on deploy.
+• Closes #215
+
+
+## Chart v2.17.0 (2026-10-01) [minor]
+
+• Merge pull request #373 from Seeyerh/security/issue-327-enhancement-gitops-driven-immutable-secret
+✨ feat: GitOps-driven immutable secret injection for validator keys
+• Merge pull request #376 from olakunleakinyele4-max/feat/issue-291-enhancement-multi-cluster-active-passive
+✨ feat: multi-cluster active-passive failover operator
+• Merge pull request #392 from Ukorstack/feat/dao-treasury-multisig-302
+✨ feat(contracts): DAO Treasury Multi-Sig Soroban contract
+• Merge pull request #390 from Okorie2000-code/feat/htlc-cross-chain-atomic-swap-300
+✨ feat(contracts/htlc): implement cross-chain HTLC for trustless atomic…
+• Merge pull request #396 from KingYuss/feat/issue-239-contract-decentralized-on-chain-escrow-with
+✨ feat: add on-chain escrow with multi-party arbitration
+• Merge pull request #403 from Chidi-Dev1/feat/ephemeral-oracle-297
+✨ feat(contracts): Temporary Storage Oracle for Ephemeral Price Feeds
+• Merge pull request #422 from dynamicwearsng-debug/feat/issue-225-geo-quorum-map
+✨ feat(frontend): add 3D geospatial quorum & latency map (#225)
+• Merge pull request #405 from Vivian-04/docs/issue-129-gas-oracle-spec
+📝 docs: add gas fee oracle architecture specification
+• Merge pull request #375 from paulolubanwo391-cloud/feat/326-mpt-state-proof-verifier
+✨ feat(contracts): MPT state proof validator for EVM bridge deposits
+✨ feat(frontend): add 3D geospatial quorum & latency map (#225)
+• Implements issue #225 - 3D Geospatial Quorum & Latency Map:
+• - frontend/components/webgl_globe.tsx
+•   Plain Three.js WebGL globe component with:
+•   * SphereGeometry earth with PhongMaterial
+•   * Graticule wireframe grid (lat/lng every 30°)
+•   * Host-node gold marker and instanced grey peer dots
+•   * Pre-allocated quadratic-Bézier arc geometry (MAX_ARCS=256,
+•     DynamicDrawUsage) targeting ≥60 FPS with 50+ simultaneous arcs
+•   * Vertex-coloured arcs driven by per-arc latencyMs
+• - frontend/analytics/geo_map/types.js
+•   Type definitions, latency thresholds (50ms / 200ms), and colour
+•   constants (green 0x39d98a / yellow 0xf5b942 / red 0xf05d5e)
+• - frontend/analytics/geo_map/geoip.js
+•   GeoIP resolution utilities:
+•   * Static database covering Tokyo, Frankfurt, Virginia, Singapore,
+•     London, Sydney and other common Stellar validator regions
+•   * resolveCoords() with runtime cache and /api/geoip fallback
+•   * resolveAllPeers() for concurrent batch resolution
+•   * latencyBand() / latencyColor() helpers
+•   * coordToVec3() lat/lng → Three.js Vector3 conversion
+•   * buildArcPositions() Bézier arc geometry builder
+• - frontend/analytics/geo_map/QuorumMap.jsx
+•   Top-level React component wiring GeoIP → arcs → WebGLGlobe with
+•   loading overlay, error banner, latency legend, and ARIA attributes
+• - frontend/analytics/geo_map/geoip.test.js
+•   28 passing tests (node:test) covering Tokyo/Frankfurt/Virginia
+•   canonical peers, latency band classification, colour coding,
+•   coordToVec3 geometry, and the full pipeline integration smoke test
+📝 docs: add gas fee oracle architecture specification
+• Specify the dynamic gas fee oracle: fixed-point EMA math with
+• step-by-step evaluation and range, overflow, truncation-error and
+• steady-state proofs; the contract ABI, authorization rules and error
+• codes; and the node reporter integration pattern.
+• Add Rust and TypeScript clients under examples/contracts/oracle-client.
+• The Rust crate carries the reference EMA implementation and tests the
+• typed client against a spec-conformant mock in the Soroban host.
+• Closes #129
+✨ feat(contracts): add ephemeral oracle for temporary price feeds
+• Implements a Soroban smart contract that stores signed off-chain price
+• data exclusively in Temporary Storage with configurable TTL (default 50
+• ledgers ≈ 5 minutes), achieving zero long-term ledger state growth.
+• ## Key modules
+• - contracts/ephemeral-oracle/src/lib.rs        — contract entry points
+• - contracts/ephemeral-oracle/src/storage.rs    — Temporary-only storage layer
+• - contracts/ephemeral-oracle/src/types.rs      — PriceEntry, OracleConfig, etc.
+• - contracts/ephemeral-oracle/src/error.rs      — OracleError enum (11 codes)
+• - contracts/ephemeral-oracle/src/test.rs       — 30+ integration tests
+• - contracts/ephemeral-oracle/BENCHMARKS.md     — storage rent comparison
+• ## Design highlights
+• - All price entries written to env.storage().temporary() only; Persistent
+•   Storage is never called (enforced by code structure and documented via
+•   PersistentStorageForbidden error code).
+• - get_price_checked() reverts with PriceFeedExpired when TTL ≤ 1 ledger,
+•   preventing DeFi contracts from acting on prices about to be evicted.
+• - batch_update() processes up to 500 assets per transaction, supporting
+•   ≥ 10,000 updates/day with minimal fee overhead.
+• - Entries are evicted automatically by the protocol — no delete transaction
+•   required; zero ledger state growth at any update frequency.
+• ## Benchmark summary
+• At 10,000 updates/day across 50 assets over 90 days:
+•   Persistent oracle: ~2,700 XLM rent + 108,000 renewal transactions + 7.2 MB state growth
+•   Ephemeral oracle:   ~576 XLM rent + 0 renewal transactions + 0 bytes state growth
+• Closes #297
+✨ feat: ## [Contract] Decentralized On-Chain Escrow with Multi-Party (#239)
+✨ feat(contracts): add DAO Treasury Multi-Sig Soroban contract
+• Implements contracts/dao-treasury as a standalone Soroban workspace
+• following the same conventions as governance-vote, escrow-vault, and
+• the other contracts in this repository.
+• ## What was built
+• ### contracts/dao-treasury/src/lib.rs  — DaoTreasury contract
+• - Instance storage anchors core config: committee, threshold, timelock
+•   delay, nonce, admin, token address, proposal count.
+• - Proposal execution engine with Pending → Executed / Cancelled
+•   lifecycle.  Assets only move via execute_proposal; no admin bypass.
+• - BFT quorum enforced via aggregate_signatures_with_auth, which calls
+•   require_auth() on every unique in-committee signer before counting
+•   the vote (Soroban auth framework validates key ownership).
+• - Nonce committed to storage before the token transfer to guard
+•   against replay attacks.
+• - Timelock-protected config changes: queue_config_change stores a
+•   PendingChange with an unlock_ledger; apply_config_change reverts
+•   if current_ledger < unlock_ledger (prevents flash-governance).
+• - deposit() entry-point for anyone to fund the treasury.
+• - Full query surface: admin, token, committee, threshold,
+•   timelock_delay, nonce, proposal_count, get_proposal,
+•   pending_change, balance, bft_min_threshold.
+• - 19 unit tests embedded in #[cfg(test)] covering: constructor,
+•   3-of-3 full-quorum execution, duplicate-sig deduplication,
+•   below-threshold revert, double-execute revert, cancel by admin
+•   and proposer, outsider cancel revert, timelock queue/apply/cancel,
+•   set_admin authorization.
+• ### contracts/dao-treasury/src/governance.rs  — BFT + timelock engine
+• - bft_threshold(n): computes ⌊2n/3⌋+1 (BFT quorum minimum).
+• - aggregate_signatures(): pure dedup-only variant (testable outside
+•   contract context); aggregate_signatures_with_auth(): contract-
+•   context variant that also calls require_auth() on each signer.
+• - ProposalDigest::compute(): SHA-256 over proposal_id ‖ amount ‖
+•   nonce, binding signers to an exact transfer.
+• - committee_contains(), threshold_met(), timelock_elapsed(),
+•   compute_unlock_ledger() with saturation semantics.
+• - 15 pure unit tests covering bft_threshold invariants, threshold_met
+•   monotonicity, timelock math, and corner cases.
+• ### contracts/dao-treasury/tests/fuzz_sig_aggregation.rs  — fuzz suite
+• 28 adversarial tests:
+• - BFT threshold always > 2n/3, never exceeds n, non-decreasing.
+• - threshold_met monotone in sig_count.
+• - Duplicate signers collapse to count=1.
+• - Non-committee signers contribute 0.
+• - Mixed duplicate+outsider batches: only unique in-committee counted.
+• - Empty sig list / empty committee / zero-committee always return 0.
+• - 200-repetition duplicate-signer stress test.
+• - Partial quorum (4 of 7) does not meet BFT threshold (5).
+• - Full quorum (7 of 7) meets BFT threshold.
+• - Timelock math: unlock_ledger >= current, saturates at u32::MAX.
+• - ProposalDigest: different ids/amounts/nonces → different hashes;
+•   identical inputs → identical hash.
+• ### contracts/dao-treasury/Cargo.toml
+• Standalone [workspace] identical in structure to governance-vote and
+• escrow-vault.  soroban-sdk pinned to =27.0.6.  profile.release with
+• overflow-checks = true, opt-level = z, lto = true.
+• ## Test results
+•   cargo test -p dao-treasury
+•   34 unit tests (lib.rs + governance.rs): ok
+•   28 fuzz tests (tests/fuzz_sig_aggregation.rs): ok
+•   Total: 62/62 pass, 0 warnings
+• Closes #302
+✨ feat(contracts/htlc): implement cross-chain HTLC for trustless atomic swaps (#300)
+• Adds a production-ready Hash Time-Locked Contract (HTLC) as a standalone
+• Soroban/Stellar contract under contracts/htlc/.  The contract enables
+• trustless atomic swaps between Stellar-native assets (XLM + SAC tokens)
+• and external blockchain networks (Bitcoin, Ethereum, etc.).
+• ## Contract architecture
+• ### contracts/htlc/Cargo.toml
+• - Standalone [workspace] root, intentionally excluded from the top-level
+•   Stellar-K8s operator workspace (mirrors contracts/governance-vote pattern).
+• - crate-type = ["cdylib", "rlib"]: cdylib for on-chain Wasm deployment,
+•   rlib for test harness linkage.
+• - Pins soroban-sdk = "=27.0.6" for reproducible builds; dev-dependencies
+•   enable testutils (mock_all_auths, ledger sequence control, SAC minting).
+• - Release profile: opt-level=z, LTO, codegen-units=1, strip=symbols to
+•   minimise Wasm artifact size and fees.
+• ### contracts/htlc/src/crypto.rs
+• - verify_preimage(): single env.crypto().sha256() host-function call,
+•   10-50x cheaper than a pure-Wasm SHA-256 implementation.
+• - Comparison via BytesN<32>::eq — constant-byte-count with no early-exit
+•   branch, ruling out timing-oracle side channels.
+• - sha256_of() helper for off-chain tooling and test setup.
+• - Full module-level security analysis:
+•   - Pre-image attack: ~2^256 work
+•   - Second-preimage attack: ~2^256 work
+•   - Birthday collision bound: ~2^128 — computationally infeasible
+•   - Full 32-byte digest always stored; no truncation used
+• ### contracts/htlc/src/lib.rs — public API
+• lock(sender, receiver, token, amount, hashlock, expiry_ledger)
+• - Validates amount > 0 (InvalidAmount) and expiry_ledger > current
+•   ledger sequence (InvalidExpiry).
+• - Rejects duplicate hashlocks (HashlockAlreadyExists) to prevent replay.
+• - Transfers tokens from sender into contract via token::Client::transfer.
+• - Persists EscrowEntry {sender, receiver, token, amount, hashlock,
+•   expiry_ledger, status=Active} keyed on DataKey::Htlc(hashlock).
+• - Emits htlc_lock event with (sender, receiver, amount, expiry_ledger).
+• claim(receiver, hashlock, preimage)
+• - Guards: EscrowNotFound, AlreadySettled, UnauthorizedReceiver,
+•   TimelockExpired, InvalidPreimage — checked in that order.
+• - Reentrancy safety: entry.status = Claimed and storage.persistent().set()
+•   are called BEFORE tok.transfer() to the receiver.
+• - Emits htlc_clm event with (receiver, amount).
+• refund(sender, hashlock)
+• - Guards: EscrowNotFound, AlreadySettled, UnauthorizedSender,
+•   TimelockNotExpired.
+• - Expiry expressed as absolute ledger sequence (not Unix timestamp) to
+•   avoid validator-set clock drift.  Refund succeeds at exactly
+•   expiry_ledger (boundary is inclusive on the sender's side).
+• - Reentrancy safety: status = Refunded written before tok.transfer().
+• - Emits htlc_ref event with (sender, amount).
+• get_htlc(hashlock) -> Option<EscrowEntry>  [view, no state mutation]
+• ## Error catalogue (10 variants)
+• HashlockAlreadyExists=1, EscrowNotFound=2, AlreadySettled=3,
+• UnauthorizedReceiver=4, UnauthorizedSender=5, TimelockExpired=6,
+• TimelockNotExpired=7, InvalidPreimage=8, InvalidAmount=9, InvalidExpiry=10
+• ## Test suite — 27 tests
+• Happy path (claim):
+•   test_happy_path_claim_transfers_funds_to_receiver — full golden-path
+•     lock→claim; verifies sender decreases, contract holds during escrow,
+•     receiver receives exact amount, contract zeroes, status=Claimed.
+•   test_happy_path_exact_amount_received — asserts delta == escrowed amount.
+• Happy path (refund):
+•   test_refund_after_expiry_returns_funds_to_sender — full refund path;
+•     verifies sender recovers exact amount, contract zeroes, receiver
+•     untouched, status=Refunded.
+•   test_refund_at_exact_expiry_boundary — boundary: refund at exactly
+•     expiry_ledger must succeed.
+• Error coverage (every variant tested):
+•   test_error_invalid_amount_zero
+•   test_error_invalid_amount_negative
+•   test_error_expiry_equal_to_current_ledger
+•   test_error_expiry_in_the_past
+•   test_error_duplicate_hashlock_rejected
+•   test_error_claim_unknown_hashlock
+•   test_error_refund_unknown_hashlock
+•   test_error_double_claim_rejected
+•   test_error_refund_after_claim_rejected
+•   test_error_double_refund_rejected
+•   test_error_claim_after_refund_rejected
+•   test_error_wrong_receiver_cannot_claim
+•   test_error_wrong_sender_cannot_refund
+•   test_error_claim_after_expiry_rejected
+•   test_error_claim_one_ledger_past_expiry
+•   test_error_premature_refund_rejected
+•   test_error_wrong_preimage_rejected
+•   test_error_empty_preimage_rejected
+• Asset conservation invariants:
+•   test_asset_conservation_across_full_lifecycle — sum(sender+contract+
+•     receiver) == total_supply at every lifecycle stage (lock and claim).
+•   test_asset_conservation_refund_path — same invariant over refund path;
+•     asserts receiver==0 and sender recovers 100% of initial balance.
+• View helper:
+•   test_get_htlc_returns_correct_entry — all EscrowEntry fields match.
+•   test_get_htlc_returns_none_for_unknown_hashlock
+• Concurrent HTLCs:
+•   test_multiple_independent_htlcs — two simultaneous HTLCs (different
+•     hashlocks) settle independently; HTLC-A claimed, HTLC-B refunded,
+•     contract balance zeroes with no cross-contamination.
+• Closes #300
+✨ feat: ## [Enhancement] Multi-Cluster Active-Passive Failover Opera (#291)
+✨ feat: ## [Enhancement] Multi-Cluster Active-Passive Failover Opera (#291)
+✨ feat(contracts): add MPT state proof validator for EVM bridge deposits
+• Implements a Soroban-native Merkle Patricia Trie verifier so a bridge can
+• validate cross-chain deposits from Ethereum state proofs instead of trusting
+• an off-chain oracle.
+• Scope (issue #326):
+• - RLP decoder/encoder in src/rlp.rs with strict canonical-form enforcement.
+•   Short forms are required when the payload allows and length fields may not
+•   carry leading zeros, since the same node otherwise has several
+•   byte-distinct encodings with different hashes.
+• - MPT traversal in src/trie.rs handling branch, leaf and extension nodes,
+•   32-byte child hashes and short inline children, plus hex-prefix path
+•   decoding and Ethereum non-inclusion proofs.
+• - Account and storage-slot value decoding in src/account.rs.
+• - A generic verify_evm_state contract interface.
+• DoS hardening, as the issue requires strict depth limits: traversal is
+• iterative (no stack overflow) and bounded by max_depth, max_nodes,
+• max_node_bytes and max_total_bytes, with every node decoded under bounded RLP
+• limits. A storage-slot proof is checked against the storageRoot inside the
+• verified account leaf, so the two proofs bind to each other.
+• Validation uses a real Ethereum mainnet state proof captured via eth_getProof
+• and eth_getBlockByNumber (9 account nodes, 9 storage nodes, WETH). Decoded
+• nonce, balance, code hash and slot value all match what the node reported.
+• Tests also assert that flipping any single byte of any node, offering the
+• proof against a different state root, truncating it, or asking for a
+• different address all fail.
+• Keccak-256 is the Ethereum pre-NIST variant, not SHA3-256; tests pin the
+• empty digest, a standard vector and the empty-trie root, and assert the
+• padding variants differ. Digests were additionally reproduced with an
+• independent Keccak-256 implementation written from the specification.
+• Verified with cargo test (70 tests), cargo clippy --all-targets (no lints),
+• cargo fmt --check, and a wasm32v1-none release build of the deployable
+• contract.
+• security: ## [Enhancement] GitOps-Driven Immutable Secret Injection (#327)
+
+
+## Chart v2.16.0 (2026-10-01) [minor]
+
+• Merge pull request #407 from Toyinoje/main
+• updated project flies
+• Merge pull request #421 from dynamicwearsng-debug/docs/issue-252-captive-core-dr-guide
+📝 docs(#252): add Captive Core state corruption DR guide and reset script
+• Merge pull request #423 from akindoyinabraham0-collab/feat/92-dr-command-center
+✨ feat(frontend): DR Command Center & Failover Drill Workbench (#92)
+• Merge branch 'main' into feat/92-dr-command-center
+📝 test(frontend): add DR Command Center test suite (#92)
+✨ feat(frontend): add typed DR API client for trigger/status/reset (#92)
+✨ feat(frontend): implement DR Command Center multi-panel dashboard (#92)
+📝 docs(#252): add Captive Core state corruption DR guide and reset script
+• - Add docs/operations/captive-core-rebuild.md with full disaster recovery
+•   guide covering diagnostic log patterns, kubectl commands to safely halt
+•   Horizon and wipe Captive Core state, expected log sequences confirming
+•   a fresh ledger catchup, and explicit PostgreSQL safety warning.
+• - Add examples/troubleshooting/reset-captive-core.sh — automated reset
+•   script with dry-run support, pre-flight PostgreSQL check, StellarNode
+•   CRD maintenance mode integration, one-shot maintenance pod wipe, and
+•   post-restart verification.
+• Closes #252
+• updated project flies
+• changes made
+
+
+## Chart v2.15.0 (2026-10-01) [minor]
+
+• Merge pull request #379 from big6isaac/feat/pvc-autoresize-observed-storage-220
+✨ feat(storage): reflect auto-expanded PVC capacity on the StellarNode status #220
+• Merge pull request #382 from Seeyerh/feat/issue-236-contract-algorithmic-stablecoin-minting
+✨ feat: algorithmic stablecoin minting & seigniorage controller
+• Merge pull request #383 from Ajibola6921/fix/issue-316-enhancement-distributed-webassembly-wasm
+✨ feat: distributed WASM caching layer for Soroban RPC nodes
+• Merge pull request #388 from Okunolabuilds/fix/issue-235
+✨ feat: add authorized wrapped token contract
+• Merge pull request #387 from Obetaebube3/feature/webgl-mempool-visualizer
+• Add WebGL mempool visualizer and stream parser modules
+• Merge pull request #391 from Emmyhack/docs/adr-rust-vs-go-312
+📝 docs(adr): Rust vs Go architecture and CRD versioning ADRs (#312)
+• Merge pull request #394 from Chris-Alex491/feat/batch-pay-299
+✨ feat(contracts): add sharded batch payments processor
+• Merge pull request #400 from Tobore2000/feat/issue-325-wasm-bytecode-optimizer-sidecar
+• Feat/issue 325 wasm bytecode optimizer sidecar
+• Merge pull request #397 from sunnykid-02/rate-limiter
+• Intelligent Prometheus Metrics Rate-Limiter
+✨ feat(operator): automated WASM bytecode optimizer sidecar (#325)
+• Implements issue #325 - Automated WebAssembly Bytecode Optimizer Sidecar.
+• ## Overview
+• Adds a wasm-opt (Binaryen) sidecar that automatically intercepts StellarNode
+• WASM deployment payloads via a MutatingAdmissionWebhook, optimises the bytecode
+• (dead-code elimination, memory packing), and returns the reduced binary before
+• it is persisted to etcd. This autonomously protects the global Stellar ledger
+• from state bloat by enforcing strict bytecode efficiency on all deployments.
+• ## New files
+• ### controller/src/deployment/optimizer.rs
+• Core WASM optimizer engine:
+• - WasmOptimizer with dual dispatch: remote HTTP sidecar OR local subprocess
+• - OptimizerConfig (reads WASM_OPT_SIDECAR_URL, WASM_OPT_LEVEL, WASM_OPT_BIN)
+• - OptimizationResult with reduction_pct() and bytes_saved() helpers
+• - run_sidecar_server() — axum HTTP server that runs inside the Alpine container
+• - Hard timeout enforcement (default 8s, leaving 2s before K8s 10s deadline)
+• - validate_wasm_magic() validates  asm magic bytes before/after optimization
+• - Passes: -O3 --dce --memory-packing --remove-unused-module-elements
+•          --duplicate-function-elimination
+• ### controller/src/webhook/wasm_mutator.rs
+• MutatingAdmissionWebhook handler (controller crate):
+• - Full AdmissionReview serde types (no kube dependency)
+• - build_patch() generates JSON Patch replacing spec.wasmBinary + injecting
+•   stellar.io/wasm-optimized, stellar.io/wasm-original-size, etc.
+• - Idempotency: skips objects already carrying stellar.io/wasm-optimized=true
+• - Fail-open: any error allows original binary through with warning annotation
+• ### sidecar/wasm-opt.Dockerfile
+• Alpine Linux container for the wasm-opt sidecar:
+• - Base: alpine:3.21 + apk add binaryen tini
+• - Non-root user (sidecar:sidecar)
+• - EXPOSE 9080 with GET /health healthcheck
+• - tini PID-1 for correct signal handling
+• - Target image size < 30 MB
+• ### charts/stellar-operator/templates/wasm-optimizer.yaml
+• Kubernetes manifests:
+• - MutatingWebhookConfiguration (stellar-wasm-optimizer) at /mutate/wasm
+•   - timeoutSeconds: 10 (K8s maximum)
+•   - failurePolicy: Ignore (fail-open — optimizer never blocks deployments)
+•   - Only fires on StellarNode CREATE/UPDATE without stellar.io/wasm-optimized
+•   - Skips kube-system and stellar-webhook namespaces
+• - wasm-opt-sidecar Deployment (2 replicas, rolling update, readOnly fs)
+• - ClusterIP Service on port 9080
+• - PodDisruptionBudget (minAvailable: 1)
+• - ServiceAccount + ConfigMap
+• ## Modified files
+• ### src/webhook/wasm_mutator.rs (new, main crate)
+• Self-contained handler implementation used by stellar-k8s webhook server:
+• - WasmOptimizer + OptimizerConfig + OptimizationResult (no cross-crate deps)
+• - wasm_mutate_handler axum handler with full fail-open logic
+• - 8 unit tests: dry-run, bad base64 (400), no wasmBinary (pass-through),
+•   already-optimised idempotency, fail-open when wasm-opt absent, missing request
+• ### src/webhook/server.rs
+• - Added wasm_mutator field to WebhookServer struct
+• - Registered POST /mutate/wasm -> wasm_mutate_handler on into_router()
+• - WasmMutatorState::from_env() called once at server construction
+• ### src/webhook/mod.rs
+• - Added pub mod wasm_mutator
+• - Re-exports wasm_mutate_handler and WasmMutatorState
+• ### charts/stellar-operator/values.yaml
+• - Added wasmOptimizer: block (enabled: false, optLevel, timeoutSecs,
+•   failurePolicy, sidecar image/pullPolicy, resources)
+• ## Architecture
+•     kubectl apply StellarNode (with wasmBinary)
+•           |
+•           v
+•     K8s API Server
+•           | MutatingWebhookConfiguration matches CREATE/UPDATE
+•           v
+•     stellar-webhook :443 /mutate/wasm  <-- wasm_mutate_handler
+•           | POST /optimize?level=3
+•           v
+•     wasm-opt-sidecar :9080   <-- Alpine + binaryen wasm-opt
+•           | optimised bytes
+•           v
+•     stellar-webhook -- JSON Patch -> K8s API Server -> etcd
+• ## Validation (Definition of Done)
+• - Submit 1 MB bloated WASM -> webhook intercepts -> optimization runs ->
+•   binary reduced ≥40% -> deployed
+• - failurePolicy: Ignore ensures optimizer failures never block deploys
+• - 10s K8s webhook budget enforced: optimizer timeout=8s + 2s headroom
+• - stellar.io/wasm-optimized annotation prevents re-optimization on updates
+• - Compatibility: wasm-opt -O3 preserves deterministic execution logic
+• Intelligent Prometheus Metrics Rate-Limiter
+✨ feat(contracts): add sharded batch payments processor
+📝 docs(adr): add Rust vs Go architecture and CRD versioning ADRs (#312)
+• Add two foundational Architecture Decision Records under docs/adrs/ that
+• document why Stellar-K8s is built in Rust with kube-rs and Tokio, and how
+• the CRD API is allowed to evolve.
+• ADR-001 (Rust operator architecture) covers memory-safety guarantees as
+• they apply to a process holding validator seeds and TLS keys, an objective
+• comparison of Go's garbage collector against Rust's ownership model, the
+• ~15MB distroless footprint budget, the Tokio patterns used by the
+• reconciliation loop, and the dual cleanup strategy of owner references
+• plus the stellarnode.stellar.org/finalizer with ordered, retention-aware
+• teardown.
+• ADR-002 (CRD versioning) records the verified current state (single
+• stellar.org/v1alpha1 served and stored version, no conversion webhook),
+• formalises the additive-only compatibility rules already enforced by
+• scripts/crd_migration_lint.py and the crd-drift CI job, and sets the
+• policy for introducing v1beta1: per-version Rust modules merged with
+• merge_crds, conversion strategy escalation, storage version migration
+• steps, deprecation window, and the finalizer interaction.
+• ADRs 0002-0004 in docs/adr/ described a finalizer name, API group and
+• storage version that never matched the implementation; they are marked
+• Superseded with pointers to the new records, and the ADR index is
+• updated.
+• Closes #312
+• Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+✨ feat: add authorized wrapped token contract
+• Add WebGL mempool visualizer and stream parser modules
+🐛 fix: ## [Enhancement] Distributed WebAssembly (WASM) Caching Laye (#316)
+✨ feat: ## [Contract] Algorithmic Stablecoin Minting & Seigniorage C (#236)
+✨ feat(contracts): add smart-multisig with on-chain ExecutionPolicy (#328)
+• Implements issue #328 - Multi-Sig Wallet with On-Chain State Execution Rules.
+• ## Changes
+• ### contracts/smart-multisig/
+• New Soroban contract (soroban-sdk 27.0.6) providing a programmable
+• M-of-N multi-signature wallet with dynamic execution guards evaluated
+• before any signature validation loop.
+• ### src/policy.rs
+• - ExecutionPolicy struct persisted in Instance Storage with four
+•   fields: max_allowed_fee_stroops, 	wap_oracle, eference_twap_price,
+•   max_price_deviation_bps
+• - DataKey enum covering Admin, Signers, Threshold, Policy, TxCounter,
+•   PendingTx(u64), Signatures(u64)
+• - PolicyError contracterror enum (13 variants, no #[repr(u32)] conflict)
+• - PendingTx struct for in-flight transfer records
+• - Pure guards: ssert_fee_within_policy(submitted_fee, policy) and
+•   ssert_twap_within_policy(policy, live_price) with compute_deviation_bps
+• - Instance storage helpers and TTL refresh (17280*30 ledgers)
+• ### src/execution.rs
+• - ssert_policy_pre_check(env, fee) -- runs fee guard THEN cross-contract
+•   TWAP oracle call BEFORE the signature loop to cheaply revert invalid txs
+• - etch_twap_price -- invoke_contract call to external oracle get_twap()
+• - ssert_threshold_met -- filters approvals against current signer set
+• - dispatch_transfer -- token::Client SEP-41 transfer with CEI pattern
+• - Admin/signer/threshold/tx-counter storage helpers
+• ### src/lib.rs
+• - SmartMultiSig contract with __constructor, propose_transfer,
+•   pprove, execute_transfer(caller, tx_id, current_fee_stroops),
+•   set_policy, otate_admin, and read-only view functions
+• - Three-step execute pipeline: policy pre-check -> threshold -> dispatch
+• - Checks-effects-interactions: tx marked executed before external call
+• - #[contractevent] events for all state transitions
+• - Lockout prevention: admin can always disable guards via u32::MAX sentinels
+• ### src/test.rs
+• 17 passing tests (cargo test --lib):
+• - 7 pure unit tests for deviation math and fee guard in policy::tests
+• - test_valid_transfer_2_of_3: happy-path 2-of-3 with token balance check
+• - test_execute_reverts_on_fee_spike: spiked fee (5000 > 1000) -> FeeTooHigh
+• - test_execute_reverts_on_twap_spike: oracle 10% above ref -> TwapDeviationTooLarge
+• - test_propose_requires_signer, test_approve_once_only, test_threshold_not_met
+• - test_set_policy_unauthorized, test_policy_disable_fee_guard (u32::MAX sentinel)
+• - test_policy_disable_twap_guard (u32::MAX sentinel), test_rotate_admin
+• ## Design notes
+• - Soroban SDK 27 does not expose ledger base_fee inside WASM; the submitting
+•   relayer passes current_fee_stroops as a tx argument, consistent with how
+•   other fee-aware contracts on Stellar handle network fee data
+• - Policy guards run before signature iteration: O(1) revert on bad network
+•   conditions vs O(signers) wasted work
+• - Admin key can never be permanently locked: set_policy always available to
+•   disable guards, rotate_admin always available to transfer keys
+✨ feat(storage): reflect auto-expanded PVC capacity on the StellarNode status
+• The volume resizer grows a PVC when the kubelet reports the volume is
+• filling, but the new size lives only on the PVC. The StellarNode keeps
+• advertising the spec.storage size it was created with, so anything reading
+• the parent CR sees stale capacity indefinitely.
+• Add src/controller/storage with two pieces:
+• - metrics: kubelet volume usage, with PromQL construction and response
+•   parsing separated from the HTTP call so both are testable. Notably
+•   VolumeUsage::from_samples distinguishes a missing series from a genuine
+•   zero, so an unreachable Prometheus no longer reads as "every volume is
+•   empty" and silently suppresses expansion across the cluster.
+• - autoresize: derives ObservedStorageStatus from the live PVC and patches
+•   it onto status.observedStorage. Requested and actual capacity are both
+•   reported, because patching the PVC spec only asks the provider to grow
+•   the volume while status.capacity moves once it has. Reporting the
+•   request as though it were real would hide an expansion that failed, so
+•   expansion_complete is true only when actual >= requested.
+• The autoscaler loop now calls this on every pass rather than only after an
+• expansion, so the parent also reflects out-of-band resizes and settles once
+• an in-flight expansion is acknowledged.
+• NOTE: this does not compile. main is already broken independently of this
+• change: an unclosed delimiter in src/backup/secret_rotation.rs and
+• src/webhook/org_validator.rs, 53 unresolved types in src/crd/stellar_node.rs
+• (NodeType, StellarNetwork and others are used but never imported from
+• crd/types.rs), a broken destructure in src/data_pipeline/pipeline.rs, and
+• references to crate::controller::quorum and crate::compliance, which do not
+• exist. Kept as a separate branch so the build breakage is handled on its
+• own.
+
+
+## Chart v2.14.0 (2026-10-01) [minor]
+
+• Merge pull request #408 from Kingsuite/feat/Telemetry
+✨ feat:implement Lock-Free Ring-Buffer for Real-Time SCP Message Telemetry
+• Merge pull request #426 from akindoyinabraham0-collab/feat/89-promql-alert-builder
+✨ feat(frontend): Visual PromQL Alerting Rule Builder & Test Workbench (#89)
+• Merge pull request #424 from DanProtocol/docs/issue-314-wasm-policy-guide
+📝 docs(wasm): enterprise WASM validation policy authoring guide
+• Merge pull request #425 from akindoyinabraham0-collab/feat/92-dr-command-center-v2
+✨ feat(frontend): DR Command Center & Failover Drill Workbench (#92)
+• Merge pull request #427 from akindoyinabraham0-collab/feat/90-rollout-timeline-visualizer
+✨ feat(frontend): StatefulSet Rolling Update & Ledger Catch-Up Timeline Visualizer (#90)
+📝 test(frontend): PodCard unit tests — 10 describe blocks (#90)
+✨ feat(frontend): PodCard TypeScript component for timeline visualizer (#90)
+📝 docs(frontend): 5 validated PrometheusRule YAML examples (#89)
+📝 test(frontend): PrometheusClient unit tests — 9 cases (#89)
+✨ feat(frontend): Prometheus query service with testAlertExpr (#89)
+✨ feat(frontend): typed DR API client (trigger/status/reset) (#92)
+📝 test(frontend): DR Command Center test suite — 9 describe blocks (#92)
+✨ feat(frontend): DR Command Center multi-panel dashboard (#92)
+📝 docs(wasm): enterprise WASM validation policy authoring guide (#314)
+• Add a step-by-step guide for enterprise node operators writing custom
+• WebAssembly validation policies for the Stellar-K8s operator.
+• New files:
+• - docs/development/wasm-policies.md — 1002-line enterprise guide covering:
+•     host ABI (get_input_len / read_input / write_output / log_message),
+•     input/output JSON schemas, full Rust plugin pattern, fail-open vs
+•     fail-closed configuration, ConfigMap packaging, operator deployment,
+•     end-to-end validation walkthrough, and an enterprise hardening checklist.
+• - examples/wasm-plugins/registry-enforcer/src/lib.rs — complete, compilable
+•     registry allow-list plugin (492 lines) with unit tests, audit annotations,
+•     and structured ValidationError output.
+• - examples/wasm-plugins/registry-enforcer/Cargo.toml — minimal cdylib crate
+•     with size-optimised release profile.
+• - examples/wasm-plugins/registry-enforcer/README.md — quick-start README.
+• Closes #314
+• Merge pull request #410 from Fayvor22/Audit
+• Audit
+✨ feat: [Documentation] Soroban Smart Contract Security Audit Checklist & Framework
+✨ feat: [Documentation] Soroban Smart Contract Security Audit Checklist & Framework
+✨ feat:implement Lock-Free Ring-Buffer for Real-Time SCP Message Telemetry
+✨ feat: [Documentation] Bare-Metal NVMe IOPS Tuning & Deployment Guide
+✨ feat: [Documentation] Bare-Metal NVMe IOPS Tuning & Deployment Guide
+
+
 ## Chart v2.13.0 (2026-10-01) [minor]
 
 • Merge pull request #395 from Diamond437rough/anycast
