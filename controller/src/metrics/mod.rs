@@ -11,14 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `controller` – Stellar-K8s operator controller crate.
+//! Metrics sub-modules for the Stellar-K8s controller crate.
 //!
-//! Exposes the following top-level modules:
-//!
-//! - [`ha`]      – High-availability controllers (WASM heap defragmentation).
-//! - [`metrics`] – Metrics helpers (jemalloc heap stats integration).
-//! - [`quorum`]  – SCP quorum-graph analysis.
+//! Exposes jemalloc heap statistics as Prometheus-compatible gauges so the
+//! defragmentation controller can make evidence-based restart decisions.
 
-pub mod ha;
-pub mod metrics;
-pub mod quorum;
+pub mod jemalloc;
