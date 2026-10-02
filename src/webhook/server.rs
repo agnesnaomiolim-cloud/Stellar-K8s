@@ -39,6 +39,7 @@ use super::types::{
 };
 use crate::crd::{StellarNode, StellarNodeSpec};
 use crate::error::{Error, Result};
+use crate::webhook::wasm_mutator::{wasm_mutate_handler, WasmMutatorState};
 
 /// Webhook server state
 pub struct WebhookServer {
@@ -56,6 +57,10 @@ pub struct WebhookServer {
 
     /// HTTP client used for external policy delegation requests.
     policy_http: reqwest::Client,
+
+    /// Shared state for the WASM bytecode optimizer mutating webhook.
+    /// Reads WASM_OPT_SIDECAR_URL from the environment at construction time.
+    wasm_mutator: Arc<WasmMutatorState>,
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +192,7 @@ impl WebhookServer {
                 fail_open,
             },
             policy_http,
+            wasm_mutator: Arc::new(WasmMutatorState::from_env()),
         }
     }
 
@@ -424,6 +430,7 @@ impl WebhookServer {
     /// Exposed for hermetic HTTP contract tests (issue #1152) so malformed and
     /// boundary payloads can be exercised without binding a TCP listener.
     pub fn into_router(self) -> Router {
+        let wasm_mutator_state = self.wasm_mutator.clone();
         let state = Arc::new(self);
         Router::new()
             .route("/health", get(health_handler))
@@ -433,6 +440,13 @@ impl WebhookServer {
             .route("/validate/policy", post(validate_policy_handler))
             .route("/policy/library", get(policy_library_handler))
             .route("/mutate", post(mutate_handler))
+            // MutatingWebhookConfiguration intercepts StellarNode WASM deployments
+            // here and routes them through the wasm-opt optimizer sidecar.
+            // See: charts/stellar-operator/templates/wasm-optimizer.yaml
+            .route(
+                "/mutate/wasm",
+                post(wasm_mutate_handler).with_state(wasm_mutator_state),
+            )
             .route("/db-trigger", post(db_trigger_handler))
             .route("/plugins", get(list_plugins_handler))
             .route("/plugins", post(add_plugin_handler))

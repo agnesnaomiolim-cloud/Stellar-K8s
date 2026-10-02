@@ -1,390 +1,625 @@
-# Captive Core State Rebuild: Disaster Recovery Guide
+# Captive Core State Corruption: Rebuild Guide
 
-**Audience:** on-call operators responding to a Horizon API outage caused by a
-corrupt or locked Captive Core state. **Goal:** safely wipe only the ephemeral
-Captive Core local ledger directory and trigger a fresh ledger catch-up —
-without touching the Horizon PostgreSQL database.
+**Audience:** On-call operators responding to a Horizon API outage caused by
+Captive Core ledger state corruption.  
+**Goal:** Safely wipe and rebuild only the ephemeral Captive Core state,
+restore Horizon API availability, and avoid any data loss in the Horizon
+PostgreSQL database.
 
-> **⚠️ Critical constraint:** This guide instructs you to delete the local
-> Captive Core directory (`/var/lib/stellar`) inside the Horizon pod. It does
-> **not** delete the Horizon PostgreSQL database. Deleting the PostgreSQL
-> database is a separate, destructive operation that requires a full re-ingestion
-> of all history and is almost never the right action for a Captive Core
-> corruption event. If you are unsure which component is failing, read the
-> [diagnostic section](#1-identify-captive-core-corruption) carefully before
-> proceeding.
+> **Related:** [Disaster Recovery](./disaster-recovery.md) ·
+> [PVC Troubleshooting](./pvc-troubleshooting.md) ·
+> [Backup Verification](./backup-verification.md) ·
+> [Operations Index](./index.md)
+
+---
+
+## ⚠️ Critical Safety Warning
+
+**Do NOT delete the Horizon PostgreSQL database.**
+
+The Horizon PostgreSQL database holds all ingested ledger data, account history,
+and API state. It is irreplaceable without a full re-ingest from network history
+archives (which can take many hours to days). This runbook targets **only** the
+ephemeral Captive Core state directory (`/var/lib/stellar` or
+`/mnt/stellar-data/captive-core`), which is fully rebuildable from the network.
+
+| Component | Safe to wipe | Rebuild time |
+|-----------|:---:|---|
+| Captive Core state directory (`/var/lib/stellar`) | ✅ Yes | ~15–60 min catchup |
+| Captive Core lock file (`stellar-core.lock`) | ✅ Yes | Immediate |
+| Captive Core bucket directory (`buckets/`) | ✅ Yes | Rebuilt during catchup |
+| **Horizon PostgreSQL database** | ❌ **NEVER** | Hours to days |
+| **Validator seed secrets** | ❌ **NEVER** | Manual re-provision |
+
+---
 
 ## Contents
 
-- [Background](#background)
-- [1. Identify Captive Core Corruption](#1-identify-captive-core-corruption)
-- [2. Scale Down Horizon Safely](#2-scale-down-horizon-safely)
-- [3. Delete the Captive Core State](#3-delete-the-captive-core-state)
-- [4. Restart and Verify Catch-up](#4-restart-and-verify-catch-up)
-- [5. Confirm Full Recovery](#5-confirm-full-recovery)
-- [6. Post-Incident Steps](#6-post-incident-steps)
-- [Automated Script](#automated-script)
-- [Validation Procedure](#validation-procedure)
-- [Related Documents](#related-documents)
+- [What is Captive Core state?](#what-is-captive-core-state)
+- [Symptoms of corruption](#symptoms-of-corruption)
+- [Diagnostic log patterns](#diagnostic-log-patterns)
+- [Prerequisites](#prerequisites)
+- [Phase 1: Confirm corruption](#phase-1-confirm-corruption)
+- [Phase 2: Freeze the workload](#phase-2-freeze-the-workload)
+- [Phase 3: Wipe Captive Core state](#phase-3-wipe-captive-core-state)
+- [Phase 4: Restart and verify catchup](#phase-4-restart-and-verify-catchup)
+- [Phase 5: Confirm Horizon API health](#phase-5-confirm-horizon-api-health)
+- [Post-incident actions](#post-incident-actions)
+- [Validation: simulating corruption](#validation-simulating-corruption)
 
 ---
 
-## Background
+## What is Captive Core state?
 
-Horizon embeds **Captive Core**: a Stellar Core process it manages in-process
-(or as a subprocess) that maintains a local ledger SQLite database and
-BucketList state under `/var/lib/stellar`. This directory is **ephemeral** —
-Captive Core can always rebuild it from the network's history archives.
+Horizon uses **Captive Core** to run a Stellar Core process in-process (or as a
+subprocess) to ingest ledger data. Captive Core maintains a local on-disk state
+directory containing:
 
-If Horizon crashes mid-write (OOM kill, SIGKILL during a rolling upgrade, node
-eviction), the BucketList or SQLite state files can be left partially written.
-On the next startup Captive Core detects the inconsistency, logs an
-unrecoverable error, and refuses to start, stalling Horizon indefinitely.
+- **SQLite databases** — Captive Core metadata and overlay state
+- **Bucket list** — compressed ledger state snapshots
+- **Lock file** — `stellar-core.lock` prevents multiple Core instances
+- **Ledger database** — a local working copy of ledger entries
 
-The Horizon PostgreSQL database (`horizon` schema tables such as `history_*`,
-`accounts`, `offers`, etc.) is **not affected** by Captive Core corruption.
-The correct recovery action is to wipe only the Captive Core local state and
-let it re-sync from the network.
+This state directory is **ephemeral**. Unlike a full Validator's data directory,
+Captive Core can rebuild it entirely from network history archives on the next
+startup. The Horizon PostgreSQL database, however, contains the full ingested
+history and is authoritative — it must never be deleted.
 
----
+```mermaid
+graph LR
+    A[Network History Archives] -->|catchup| B[Captive Core State\n/var/lib/stellar]
+    B -->|ingest events| C[Horizon PostgreSQL\nHorizon DB]
+    C -->|serve| D[Horizon REST API]
 
-## 1. Identify Captive Core Corruption
-
-### Signature log patterns
-
-Run the following to tail recent Horizon logs:
-
-```bash
-# Replace <name> and <namespace> with your StellarNode resource values
-export NODE=my-horizon
-export NS=stellar
-
-kubectl logs -n "${NS}" -l "app.kubernetes.io/name=horizon,stellar.org/node=${NODE}" \
-  --tail=200 --container horizon
-```
-
-A corrupt Captive Core state produces **one or more** of these log signatures:
-
-```
-# Locked process file — previous crash left a stale lock
-FATAL src/work/WorkScheduler.cpp:... "Unable to acquire lock: /var/lib/stellar/stellar-core.lock"
-
-# Corrupt BucketList header
-ERROR src/bucket/BucketList.cpp:... "BucketList hash mismatch; expected=... got=..."
-
-# SQLite WAL inconsistency
-ERROR src/database/Database.cpp:... "database disk image is malformed"
-
-# Captive Core subprocess exited during Horizon startup
-level=error msg="error starting captive core" error="stellar-core exited with status 1"
-
-# Horizon reports ingestion stall because Captive Core is not advancing
-level=error msg="captive core is not producing new ledgers" last_ledger=... deadline=...
-```
-
-### Distinguish Captive Core failure from PostgreSQL failure
-
-| Symptom | Likely cause |
-|---------|-------------|
-| Horizon pod in `CrashLoopBackOff`, logs show `stellar-core` lock or hash error | Captive Core corruption → **this guide** |
-| Horizon pod running but `/health` returns `{"status":"syncing"}` for > 30 min | Normal catch-up; wait before acting |
-| `pq: connection refused` or `FATAL: database "horizon" does not exist` | PostgreSQL problem — do **not** follow this guide |
-| `level=error msg="reingestion required"` | Schema migration needed, not state corruption |
-
-### Check Captive Core's local state directly
-
-If the pod is still running (not yet in `CrashLoopBackOff`):
-
-```bash
-kubectl exec -n "${NS}" deploy/horizon-${NODE} -c horizon -- \
-  ls -lh /var/lib/stellar/
-
-# Expected healthy output — you will see files like:
-# stellar-core.lock, buckets/, stellar.db, stellar.db-wal, stellar.db-shm
-
-# A malformed state may show a zero-byte stellar.db or a stale .lock file:
-# -rw-r--r-- 1 stellar stellar 0 Jan 01 00:00 stellar.db
-# -rw-r--r-- 1 stellar stellar 4 Jan 01 00:00 stellar-core.lock
-```
-
-Simulate corruption for testing (see [Validation Procedure](#validation-procedure)):
-
-```bash
-# Corrupt the SQLite database header — use ONLY in non-production for drill purposes
-kubectl exec -n "${NS}" deploy/horizon-${NODE} -c horizon -- \
-  dd if=/dev/urandom of=/var/lib/stellar/stellar.db bs=512 count=1 conv=notrunc
+    style B fill:#ffe0b2,stroke:#e65100
+    style C fill:#e8f5e9,stroke:#2e7d32
+    style A fill:#e3f2fd,stroke:#1565c0
 ```
 
 ---
 
-## 2. Scale Down Horizon Safely
+## Symptoms of corruption
 
-Before deleting the Captive Core state you must ensure no Horizon process is
-writing to it. The operator manages Horizon as a Kubernetes `Deployment` (for
-API nodes) or `StatefulSet` (for validators with captive core).
+The following conditions indicate unrecoverable Captive Core state. All of them
+block Horizon API functionality while the Horizon PostgreSQL database remains
+intact.
 
-### Option A — Scale via the operator (recommended)
-
-Set `spec.maintenanceMode: true` on the `StellarNode` resource. The operator
-will drain traffic and scale replicas to zero:
-
-```bash
-kubectl patch stellarnode "${NODE}" -n "${NS}" \
-  --type=merge \
-  -p '{"spec":{"maintenanceMode":true}}'
-
-# Wait for the operator to drain the pods
-kubectl rollout status deployment/horizon-${NODE} -n "${NS}" --timeout=120s
-```
-
-### Option B — Scale the Deployment directly
-
-Use this if you need to act faster than the operator reconcile loop allows, or
-if the `StellarNode` CRD is not responding:
-
-```bash
-kubectl scale deployment/horizon-${NODE} -n "${NS}" --replicas=0
-
-# Confirm all pods are gone before continuing
-kubectl get pods -n "${NS}" -l "stellar.org/node=${NODE}" --watch
-# Wait until the list is empty, then Ctrl-C
-```
-
-> **Do not skip this step.** Deleting `/var/lib/stellar` while Captive Core is
-> running will immediately corrupt any in-flight BucketList merge and may leave
-> the node in a state that is harder to recover.
+| Symptom | Severity |
+|---------|----------|
+| Horizon returns HTTP 503 with `"problem": "Service Unavailable"` | High |
+| Horizon pods stuck in `CrashLoopBackOff` | High |
+| `stellar-core` subprocess exits with non-zero code immediately on start | High |
+| Lock file present but no Core process running | Medium |
+| Ledger ingest stalls at a fixed sequence number for > 5 minutes | Medium |
+| Horizon liveness probe fails repeatedly | Medium |
 
 ---
 
-## 3. Delete the Captive Core State
+## Diagnostic log patterns
 
-With Horizon scaled to zero, bring up a temporary maintenance pod that mounts
-the same volume (if Captive Core state is on a PVC) or use a short-lived debug
-pod to clear the ephemeral directory.
+Run these commands to confirm the error is Captive Core corruption and not a
+network, quorum, or PostgreSQL problem.
 
-### Case A — Captive Core state is ephemeral (emptyDir / hostPath)
-
-Because the state lives inside the container filesystem or a pod-local
-`emptyDir`, simply deleting the pod is enough — Kubernetes will recreate it
-with a fresh, empty `/var/lib/stellar` on next startup. Skip to
-[step 4](#4-restart-and-verify-catch-up).
-
-### Case B — Captive Core state is on a named PVC
-
-Check whether Captive Core uses a dedicated PVC:
+### Check Horizon container logs
 
 ```bash
-kubectl get pvc -n "${NS}" -l "stellar.org/node=${NODE}"
-# Look for a PVC named like:  captive-core-<node>  or  stellar-data-<node>
+kubectl logs "$POD" -n "$NS" -c horizon --tail=100
 ```
 
-If a dedicated `captive-core` PVC exists, clear it without deleting the volume:
+**Signs of Captive Core lock corruption:**
+
+```text
+ERRO[2026-10-01T09:15:42Z] error starting captive core: open /var/lib/stellar/stellar-core.lock: permission denied
+ERRO[2026-10-01T09:15:42Z] Failed to start Captive Core subprocess
+FATA[2026-10-01T09:15:42Z] cannot start ingestion: captive core exited unexpectedly
+```
+
+**Signs of SQLite state corruption:**
+
+```text
+ERRO[2026-10-01T09:15:44Z] captive core subprocess error: database disk image is malformed
+ERRO[2026-10-01T09:15:44Z] CaptiveCore: stellar-core process exited with status 1
+ERRO[2026-10-01T09:15:44Z] ingestion service stopping: unrecoverable captive core error
+```
+
+**Signs of bucket list corruption:**
+
+```text
+ERRO[2026-10-01T09:15:50Z] captive core: could not apply bucket: bucket hash mismatch
+ERRO[2026-10-01T09:15:50Z] CaptiveCore crashed: expected <hash_a>, got <hash_b>
+FATA[2026-10-01T09:15:50Z] horizon shutting down: captive core is in an unrecoverable state
+```
+
+**Signs of a stale lock (Core crashed mid-write):**
+
+```text
+ERRO[2026-10-01T09:15:55Z] stellar-core lock file exists but process is not running
+ERRO[2026-10-01T09:15:55Z] remove /var/lib/stellar/stellar-core.lock: operation not permitted
+```
+
+### Confirm Horizon PostgreSQL is healthy (it should be)
+
+Before wiping Core state, confirm the Horizon database itself is responsive —
+this distinguishes a Captive Core issue from a broader database failure:
 
 ```bash
-# Identify the PVC name
-CAPTIVE_PVC=$(kubectl get pvc -n "${NS}" \
-  -l "stellar.org/component=captive-core,stellar.org/node=${NODE}" \
+kubectl exec "$POD" -n "$NS" -c horizon -- \
+  psql "${DATABASE_URL}" -c "SELECT COUNT(*) FROM history_ledgers;"
+```
+
+Expected output (any non-zero count confirms the DB is intact):
+
+```text
+  count
+---------
+ 9874532
+(1 row)
+```
+
+If this query fails, stop here. You have a PostgreSQL problem, not a Captive
+Core corruption. See [Disaster Recovery](./disaster-recovery.md) instead.
+
+---
+
+## Prerequisites
+
+Install [`kubectl stellar`](../kubectl-plugin.md) and confirm access:
+
+```bash
+kubectl stellar status -n "$NS"
+```
+
+Export these variables at the start of your incident session. Replace values
+with your actual deployment names:
+
+```bash
+export NS=stellar                        # Kubernetes namespace
+export HORIZON_DEPLOY=horizon            # Deployment name for the Horizon pod
+export POD=$(kubectl get pod -n "$NS" \
+  -l "app.kubernetes.io/name=horizon" \
+  --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}')
-
-echo "Clearing PVC: ${CAPTIVE_PVC}"
-
-# Spin up a one-shot busybox pod to wipe the directory
-kubectl run captive-core-reset-${NODE} \
-  --namespace="${NS}" \
-  --image=busybox:1.36 \
-  --restart=Never \
-  --overrides="{
-    \"spec\": {
-      \"volumes\": [{\"name\": \"captive-data\", \"persistentVolumeClaim\": {\"claimName\": \"${CAPTIVE_PVC}\"}}],
-      \"containers\": [{
-        \"name\": \"reset\",
-        \"image\": \"busybox:1.36\",
-        \"command\": [\"sh\", \"-c\", \"rm -rf /var/lib/stellar/* && echo DONE\"],
-        \"volumeMounts\": [{\"name\": \"captive-data\", \"mountPath\": \"/var/lib/stellar\"}]
-      }]
-    }
-  }"
-
-# Wait for the pod to complete and confirm output
-kubectl wait pod/captive-core-reset-${NODE} -n "${NS}" \
-  --for=condition=Succeeded --timeout=60s
-
-kubectl logs -n "${NS}" captive-core-reset-${NODE}
-# Expected: DONE
-
-# Clean up the temporary pod
-kubectl delete pod/captive-core-reset-${NODE} -n "${NS}"
+export CAPTIVE_CORE_DIR="/var/lib/stellar"   # or /mnt/stellar-data/captive-core
+export DATABASE_URL="postgresql://horizon:REDACTED@horizon-postgres-rw:5432/horizon"
 ```
 
-> **Do not delete the Horizon PVC** (`horizon-db-*` or any PVC backed by
-> PostgreSQL). That volume holds the Horizon schema and would require a
-> full re-ingestion from genesis to restore.
+> **Tip:** If you are unsure of the Captive Core directory path, check the
+> Horizon ConfigMap:
+> ```bash
+> kubectl get configmap -n "$NS" -l "app.kubernetes.io/name=horizon" \
+>   -o jsonpath='{.items[0].data.CAPTIVE_CORE_STORAGE_PATH}'
+> ```
 
 ---
 
-## 4. Restart and Verify Catch-up
+## Phase 1: Confirm corruption
 
-### Scale Horizon back up
+Exec into the Horizon pod and inspect the Captive Core state directory:
 
 ```bash
-# If you used maintenanceMode, re-enable normal operation:
-kubectl patch stellarnode "${NODE}" -n "${NS}" \
-  --type=merge \
+kubectl exec "$POD" -n "$NS" -c horizon -- ls -lah "${CAPTIVE_CORE_DIR}/"
+```
+
+Expected output showing stale state:
+
+```text
+total 1.2G
+drwxr-xr-x 4 horizon horizon 4.0K Oct  1 09:12 .
+drwxr-xr-x 8 root    root    4.0K Oct  1 07:00 ..
+drwxr-xr-x 3 horizon horizon 4.0K Oct  1 09:12 buckets
+-rw-r--r-- 1 horizon horizon 512M Oct  1 09:11 stellar.db
+-rw-r--r-- 1 horizon horizon   11 Oct  1 09:11 stellar-core.lock
+-rw-r--r-- 1 horizon horizon 256M Oct  1 09:11 stellar-core-meta.db
+```
+
+Check the lock file content:
+
+```bash
+kubectl exec "$POD" -n "$NS" -c horizon -- \
+  cat "${CAPTIVE_CORE_DIR}/stellar-core.lock"
+```
+
+A stale lock from a dead process looks like this (the PID no longer exists):
+
+```text
+12847
+```
+
+Verify the process is gone:
+
+```bash
+kubectl exec "$POD" -n "$NS" -c horizon -- \
+  sh -c 'kill -0 $(cat '"${CAPTIVE_CORE_DIR}/stellar-core.lock"') 2>&1 || echo "STALE LOCK: process not found"'
+```
+
+Expected output confirming the lock is stale:
+
+```text
+STALE LOCK: process not found
+```
+
+---
+
+## Phase 2: Freeze the workload
+
+### 2.1 Scale down Horizon to zero replicas
+
+> **Warning:** This takes Horizon offline. Notify users and monitoring teams
+> before proceeding. Typically takes 30–90 seconds for in-flight requests to
+> drain.
+
+```bash
+kubectl scale deployment "$HORIZON_DEPLOY" -n "$NS" --replicas=0
+kubectl wait deployment "$HORIZON_DEPLOY" -n "$NS" \
+  --for=jsonpath='{.status.availableReplicas}'=0 \
+  --timeout=120s
+```
+
+Expected output:
+
+```text
+deployment.apps/horizon scaled
+deployment.apps/horizon condition met
+```
+
+Confirm all Horizon pods are gone:
+
+```bash
+kubectl get pod -n "$NS" -l "app.kubernetes.io/name=horizon"
+```
+
+Expected output:
+
+```text
+No resources found in stellar namespace.
+```
+
+### 2.2 If managed by StellarNode CRD, enable maintenance mode
+
+If your Horizon instance is managed by the Stellar-K8s operator via a
+`StellarNode` resource, place it in maintenance mode to prevent the operator
+from interfering with the scale-down:
+
+```bash
+kubectl patch stellarnode horizon -n "$NS" --type=merge \
+  -p '{"spec":{"maintenanceMode":true}}'
+```
+
+Wait for the status to reflect maintenance:
+
+```bash
+kubectl get stellarnode horizon -n "$NS" -o jsonpath='{.status.phase}'
+```
+
+Expected output:
+
+```text
+Maintenance
+```
+
+---
+
+## Phase 3: Wipe Captive Core state
+
+Run a one-shot maintenance pod to safely delete only the Captive Core state
+directory. **Do not touch the PostgreSQL database.**
+
+### Option A: Using the automated reset script (recommended)
+
+See [`examples/troubleshooting/reset-captive-core.sh`](../../examples/troubleshooting/reset-captive-core.sh)
+for the fully automated, idempotent version of these steps.
+
+```bash
+NS="$NS" HORIZON_DEPLOY="$HORIZON_DEPLOY" \
+  CAPTIVE_CORE_DIR="$CAPTIVE_CORE_DIR" \
+  bash examples/troubleshooting/reset-captive-core.sh
+```
+
+### Option B: Manual kubectl exec steps
+
+If the pod is still running (e.g., in a `CrashLoopBackOff` restart window),
+exec in during a brief window:
+
+```bash
+kubectl exec "$POD" -n "$NS" -c horizon -- \
+  sh -c "rm -rf ${CAPTIVE_CORE_DIR:?}/ && echo 'Captive Core state wiped'"
+```
+
+Expected output:
+
+```text
+Captive Core state wiped
+```
+
+### Option C: Maintenance pod approach (for terminated/ImagePullBackOff pods)
+
+If the Horizon pod cannot be exec'd into, use a maintenance pod that mounts the
+same PVC. Apply the debug pod from
+[`examples/debug/maintenance-pod.yaml`](../../examples/debug/maintenance-pod.yaml)
+with the Horizon PVC name substituted, then:
+
+```bash
+kubectl exec stellar-maintenance-debug -n "$NS" -- \
+  sh -c "rm -rf ${CAPTIVE_CORE_DIR:?}/ && mkdir -p ${CAPTIVE_CORE_DIR} && echo 'Done'"
+```
+
+After wiping, delete the maintenance pod:
+
+```bash
+kubectl delete pod stellar-maintenance-debug -n "$NS"
+```
+
+### Verify the state directory is empty
+
+Regardless of which option was used, confirm the directory is clean:
+
+```bash
+# Check via a new exec if pod is still up, or inspect via a fresh pod
+kubectl run verify-core-wipe --rm -i --image=busybox --restart=Never -n "$NS" \
+  --overrides='{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"horizon-data"}}],"containers":[{"name":"v","image":"busybox","command":["sh","-c","ls -la /data/captive-core/ 2>/dev/null || echo EMPTY"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}]}}' \
+  -- sh
+```
+
+Expected output (directory should be empty or show only the newly created empty dir):
+
+```text
+EMPTY
+```
+
+---
+
+## Phase 4: Restart and verify catchup
+
+### 4.1 Scale Horizon back up
+
+```bash
+kubectl scale deployment "$HORIZON_DEPLOY" -n "$NS" --replicas=1
+kubectl rollout status deployment "$HORIZON_DEPLOY" -n "$NS" --timeout=300s
+```
+
+Expected output:
+
+```text
+Waiting for deployment "horizon" rollout to finish: 0 of 1 updated replicas are available...
+deployment "horizon" successfully rolled out
+```
+
+If using the StellarNode CRD, disable maintenance mode first:
+
+```bash
+kubectl patch stellarnode horizon -n "$NS" --type=merge \
   -p '{"spec":{"maintenanceMode":false}}'
-
-# Or if you scaled directly:
-kubectl scale deployment/horizon-${NODE} -n "${NS}" --replicas=1
 ```
 
-### Monitor the startup sequence
+### 4.2 Confirm Captive Core catchup has started
 
-Captive Core will now start fresh and begin catching up from the network's
-history archives. This process can take **5–30 minutes** depending on the
-network and your archive bandwidth.
+Watch the Horizon logs for the catchup sequence:
 
 ```bash
-kubectl logs -n "${NS}" -l "stellar.org/node=${NODE}" \
-  --container horizon -f --tail=100
+kubectl logs -f deployment/"$HORIZON_DEPLOY" -n "$NS" -c horizon | \
+  grep -E "(captive|catchup|ledger|ingest)"
 ```
 
-**Expected log sequence — healthy fresh catch-up:**
+**Expected log sequence — a healthy Captive Core rebuild:**
 
-```
-# 1. Captive Core starts and reads the config
-level=info msg="starting captive core" binary=/usr/bin/stellar-core
-
-# 2. Captive Core contacts the history archive and begins downloading
-INFO src/historywork/GetHistoryArchiveStateWork.cpp:... "Fetching state from archive"
-INFO src/historywork/DownloadBucketsWork.cpp:... "Downloading bucket ..."
-
-# 3. BucketList application begins
-INFO src/bucket/BucketManager.cpp:... "Applying buckets to database"
-
-# 4. Captive Core reports it has applied the last checkpoint and is catching up live
-INFO src/ledger/LedgerManagerImpl.cpp:... "Loaded ledger from history archive"
-INFO src/ledger/LedgerManagerImpl.cpp:... "Applying transactions"
-
-# 5. Horizon detects Captive Core is live and starts ingesting
-level=info msg="ingestion state" current_ledger=... latest_ledger=...
-level=info msg="catching up to latest ledger"
-
-# 6. Horizon marks itself ready once within configured lag tolerance
-level=info msg="ingestion is up to date" lag_seconds=...
+```text
+INFO[2026-10-01T09:32:01Z] Starting Captive Core subprocess
+INFO[2026-10-01T09:32:02Z] Captive Core starting with fresh state directory
+INFO[2026-10-01T09:32:05Z] stellar-core: Connecting to network peers
+INFO[2026-10-01T09:32:10Z] stellar-core: Received SCP messages, beginning catchup
+INFO[2026-10-01T09:32:12Z] stellar-core: catchup mode: CATCHUP_RECENT
+INFO[2026-10-01T09:32:15Z] stellar-core: Downloading checkpoints from history archive
+INFO[2026-10-01T09:32:45Z] stellar-core: Applying buckets from checkpoint ledger 9874496
+INFO[2026-10-01T09:33:30Z] stellar-core: Replaying ledgers 9874496 -> 9874560
+INFO[2026-10-01T09:34:01Z] stellar-core: Ledger 9874560 closed, catching up to network
+INFO[2026-10-01T09:35:22Z] Captive Core is synced at ledger 9874575
+INFO[2026-10-01T09:35:22Z] Starting ledger ingestion from captive core
+INFO[2026-10-01T09:35:23Z] Ingesting ledger: 9874576
+INFO[2026-10-01T09:35:24Z] Ingesting ledger: 9874577
 ```
 
----
+**If you see this error after restart, the directory was not fully wiped:**
 
-## 5. Confirm Full Recovery
+```text
+ERRO[2026-10-01T09:32:02Z] stellar-core lock file exists, captive core cannot start
+```
 
-### Health endpoint
+Repeat Phase 3 to ensure the lock file is removed.
+
+### 4.3 Monitor catchup progress
+
+The catchup typically takes 15–60 minutes depending on network speed and the
+distance from the latest checkpoint. Track progress:
 
 ```bash
-kubectl exec -n "${NS}" deploy/horizon-${NODE} -c horizon -- \
-  curl -s http://localhost:8080/health | jq .
+kubectl exec deployment/"$HORIZON_DEPLOY" -n "$NS" -c horizon -- \
+  wget -qO- http://localhost:8000/metrics | grep -E "horizon_ingest_ledger_ingestion_duration"
 ```
 
-Expected response when fully recovered:
+Or check the Horizon status endpoint:
+
+```bash
+kubectl exec deployment/"$HORIZON_DEPLOY" -n "$NS" -c horizon -- \
+  wget -qO- http://localhost:8000/ | python3 -m json.tool | grep -E "(state|ledger)"
+```
+
+Expected output while catching up:
 
 ```json
 {
-  "status": "healthy",
-  "version": "...",
-  "horizon_sequence": 12345678,
-  "core_sequence": 12345678,
-  "core_latest_ledger": 12345678
+  "state": "syncing",
+  "current_protocol_version": 21,
+  "core_latest_ledger": 9874599,
+  "history_latest_ledger": 9874575,
+  "ingested_latest_ledger": 9874530
 }
 ```
 
-The `horizon_sequence` and `core_sequence` fields must be equal (or within a
-few ledgers of each other) and the `status` must be `"healthy"`.
+Expected output when fully synced:
 
-### Ledger lag metric
-
-```bash
-# Check the Prometheus metric for ingestion lag
-kubectl exec -n "${NS}" deploy/horizon-${NODE} -c horizon -- \
-  curl -s http://localhost:8080/metrics | grep ingest_ledger_lag
-# Expected: a value close to 0 (typically < 5 seconds on a healthy network)
+```json
+{
+  "state": "synced",
+  "current_protocol_version": 21,
+  "core_latest_ledger": 9874605,
+  "history_latest_ledger": 9874605,
+  "ingested_latest_ledger": 9874604
+}
 ```
 
-### End-to-end API smoke test
+---
+
+## Phase 5: Confirm Horizon API health
+
+### 5.1 Check liveness and readiness probes
 
 ```bash
-HORIZON_SVC=$(kubectl get svc -n "${NS}" -l "stellar.org/node=${NODE}" \
+kubectl get pod -n "$NS" -l "app.kubernetes.io/name=horizon" -o wide
+```
+
+Expected output (READY `1/1`):
+
+```text
+NAME                       READY   STATUS    RESTARTS   AGE
+horizon-7d6b8f5c9-xk4qz   1/1     Running   0          8m
+```
+
+### 5.2 Verify API responses
+
+```bash
+HORIZON_POD=$(kubectl get pod -n "$NS" -l "app.kubernetes.io/name=horizon" \
   -o jsonpath='{.items[0].metadata.name}')
 
-kubectl run smoke-test-${NODE} \
-  --namespace="${NS}" \
-  --image=curlimages/curl:8.6.0 \
-  --restart=Never \
-  --rm -it \
-  -- curl -s "http://${HORIZON_SVC}:8000/" | jq '.core_sequence'
-# Expected: a recent mainnet/testnet ledger number
+# Check root endpoint returns 200
+kubectl exec "$HORIZON_POD" -n "$NS" -c horizon -- \
+  wget -qO- --server-response http://localhost:8000/ 2>&1 | head -5
+```
+
+Expected output:
+
+```text
+  HTTP/1.1 200 OK
+  Content-Type: application/hal+json; charset=utf-8
+```
+
+### 5.3 Confirm the Horizon database was not touched
+
+Verify the ledger count in PostgreSQL is unchanged from Phase 1:
+
+```bash
+kubectl exec "$HORIZON_POD" -n "$NS" -c horizon -- \
+  psql "${DATABASE_URL}" -c "SELECT COUNT(*), MAX(sequence) FROM history_ledgers;"
+```
+
+Expected output (count should be same or higher — never lower — than before the rebuild):
+
+```text
+  count   |    max
+----------+---------
+ 9874605  | 9874605
+(1 row)
+```
+
+### 5.4 Run the kubectl stellar status check
+
+```bash
+kubectl stellar status -n "$NS"
+```
+
+Expected output:
+
+```text
+NAME      TYPE     NETWORK   STATE    LEDGER    AGE
+horizon   Horizon  mainnet   Synced   9874605   12m
 ```
 
 ---
 
-## 6. Post-Incident Steps
+## Post-incident actions
 
-1. **Document the incident** using the [post-mortem template](../templates/post-mortem-template.md).
-2. **Check why Captive Core crashed mid-write.** Common causes:
-   - Node memory pressure triggering OOM kill — review resource limits in `spec.resources`.
-   - Abrupt pod eviction during a rolling upgrade — consider setting `spec.strategy.type: Recreate` for Horizon deployments.
-   - Storage I/O errors on the underlying node — check node events with `kubectl describe node <node>`.
-3. **Review the Horizon deployment's `terminationGracePeriodSeconds`** — it should be at least `120s` to give Captive Core time to flush its state on graceful shutdown.
-4. **Consider enabling PodDisruptionBudgets** so cluster drain operations don't forcibly evict Horizon during a write. See [pod-disruption-budget.md](../pod-disruption-budget.md).
-5. **Set up alerting** on the `captive_core_is_stale` and `horizon_ingest_ledger_lag` metrics so the next occurrence is caught before it becomes a customer-visible outage.
+1. **File an incident report** using the
+   [post-mortem template](../incident-response/post-mortem.md). Document:
+   - Approximate time of the original Captive Core crash
+   - Duration of Horizon API unavailability
+   - Ledger gap (if any) in the `history_ledgers` table
+   - Root cause (disk I/O error, OOM kill, interrupted write, etc.)
 
----
-
-## Automated Script
-
-For a scriptable version of steps 2–4 above, see
-[`examples/troubleshooting/reset-captive-core.sh`](../../examples/troubleshooting/reset-captive-core.sh).
-
-The script:
-- Accepts `--node`, `--namespace`, and `--dry-run` flags.
-- Scales Horizon to zero, clears `/var/lib/stellar`, scales Horizon back up.
-- Tails the logs until Captive Core reports successful catch-up or the timeout is reached.
-- Exits non-zero on failure so it can be used in automation pipelines.
-
----
-
-## Validation Procedure
-
-To validate this guide against a real cluster (required before marking the
-DR drill as complete in the [DR results template](../dr-results-template.md)):
-
-1. Deploy a Horizon node to a non-production namespace.
-2. Wait for it to reach `status: healthy`.
-3. Corrupt the Captive Core SQLite header to simulate a crash mid-write:
+2. **Check for recurring disk I/O issues** that may have caused the crash:
    ```bash
-   # Identify the running Horizon pod
-   POD=$(kubectl get pods -n "${NS}" -l "stellar.org/node=${NODE}" \
-     -o jsonpath='{.items[0].metadata.name}')
-
-   # Overwrite the first 512 bytes of the SQLite database with random data
-   kubectl exec -n "${NS}" "${POD}" -c horizon -- \
-     dd if=/dev/urandom of=/var/lib/stellar/stellar.db \
-        bs=512 count=1 conv=notrunc
-
-   # Force-kill the pod to trigger a restart with the corrupt state
-   kubectl delete pod -n "${NS}" "${POD}"
+   kubectl describe pod "$POD" -n "$NS" | grep -A5 "OOMKilled\|Error\|Reason"
+   dmesg | grep -i "i/o error\|ext4\|xfs" | tail -20  # from the node
    ```
-4. Observe the pod enter `CrashLoopBackOff` and confirm the expected error
-   log signatures from [section 1](#1-identify-captive-core-corruption).
-5. Execute the rebuild procedure (sections 2–5) and confirm Horizon returns
-   to `status: healthy` within the expected time window.
-6. Record the actual RTO in the DR results template.
+
+3. **Review PVC IOPS capacity.** Captive Core is I/O intensive. If the crash
+   was due to a slow disk, see [Proactive Disk Scaling](../proactive-disk-scaling.md).
+
+4. **Consider adding a Captive Core crash alert.** Add a Prometheus alert rule
+   that fires when Horizon's `horizon_ingest_captive_core_up` metric drops to 0:
+   ```yaml
+   - alert: CaptiveCoreDown
+     expr: horizon_ingest_captive_core_up == 0
+     for: 2m
+     labels:
+       severity: critical
+     annotations:
+       summary: "Captive Core subprocess is not running"
+       description: "Horizon {{ $labels.namespace }}/{{ $labels.pod }} has no active Captive Core process. API is degraded."
+   ```
+
+5. **Re-enable any suspended StellarNode resources:**
+   ```bash
+   kubectl patch stellarnode horizon -n "$NS" --type=merge \
+     -p '{"spec":{"maintenanceMode":false}}'
+   ```
 
 ---
 
-## Related Documents
+## Validation: simulating corruption
 
-- [Disaster Recovery & Quorum Loss Runbook](disaster-recovery.md)
-- [DR Failover Guide](../dr-failover.md)
-- [Backup and Disaster Recovery Runbook](../backup-disaster-recovery-runbook.md)
-- [Pod Disruption Budgets](../pod-disruption-budget.md)
-- [Capacity Planning](capacity-planning.md)
-- [DR Results Template](../dr-results-template.md)
-- [Post-Mortem Template](../templates/post-mortem-template.md)
+The issue description requests that this guide be validated by manually
+simulating Captive Core corruption. Follow these steps in a non-production
+environment only.
+
+### Step 1: Corrupt the Captive Core SQLite database
+
+```bash
+HORIZON_POD=$(kubectl get pod -n "$NS" -l "app.kubernetes.io/name=horizon" \
+  -o jsonpath='{.items[0].metadata.name}')
+
+# Write random bytes to the SQLite header to corrupt the database
+kubectl exec "$HORIZON_POD" -n "$NS" -c horizon -- \
+  sh -c "dd if=/dev/urandom bs=16 count=1 of=${CAPTIVE_CORE_DIR}/stellar.db conv=notrunc 2>&1"
+```
+
+Expected output:
+
+```text
+1+0 records in
+1+0 records out
+16 bytes copied, ...
+```
+
+### Step 2: Restart Horizon and observe corruption errors
+
+```bash
+kubectl rollout restart deployment/"$HORIZON_DEPLOY" -n "$NS"
+kubectl logs -f deployment/"$HORIZON_DEPLOY" -n "$NS" -c horizon | \
+  grep -E "(ERROR|FATAL|malformed|captive)" | head -20
+```
+
+You should observe logs matching the [diagnostic patterns](#diagnostic-log-patterns)
+described above.
+
+### Step 3: Execute this runbook to restore
+
+Follow Phases 1–5 of this guide. Verify that:
+
+- Horizon returns to `state: synced` in the root endpoint
+- The `history_ledgers` row count matches the pre-corruption value
+- No ledger sequence gaps exist in `history_ledgers`
+
+```bash
+kubectl exec "$HORIZON_POD" -n "$NS" -c horizon -- \
+  psql "${DATABASE_URL}" -c \
+  "SELECT sequence FROM history_ledgers ORDER BY sequence LIMIT 10;"
+```

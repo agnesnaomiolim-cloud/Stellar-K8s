@@ -53,5 +53,6 @@ Key signals to monitor:
 
 - [Incident Response](incident-response.md)
 - [Production Profiling Runbook](profiling-runbook.md)
+- [Zero-Downtime Protocol Upgrade Runbook](protocol-upgrades.md)
 - [API Reference](../api/index.md)
 - [Production Security Hardening](../production-security-hardening.md)

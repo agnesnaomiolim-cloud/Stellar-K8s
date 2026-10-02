@@ -337,3 +337,16 @@ src = [
     "monitoring/log-alerts.yaml",
 ]
 
+# ── Chaos Engineering Strategy ─────────────────────────────────────────────────
+[[entry]]
+doc = "docs/testing/chaos-engineering.md"
+src = [
+    "src/controller/chaos_engineering.rs",
+    "src/controller/health.rs",
+    "src/controller/remediation.rs",
+    "src/controller/captive/supervisor.rs",
+    "tests/chaos/**",
+    "examples/chaos/**",
+    ".github/workflows/chaos-tests.yml",
+]
+
