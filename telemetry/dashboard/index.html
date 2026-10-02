@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stellar-K8s · Traffic Routing Heatmap</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #060b14;
+      color: #e2e8f0;
+      font-family: 'Inter', system-ui, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      background: rgba(0,0,0,0.3);
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    header .subtitle {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    /* Heatmap fills remaining space */
+    #heatmap-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #heatmap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 2a10 10 0 0 1 0 20"/>
+      <path d="M2 12h20"/>
+    </svg>
+    <div>
+      <h1>Stellar-K8s &mdash; Live Traffic Routing Heatmap</h1>
+      <span class="subtitle">Envoy proxy telemetry · WebGL2 · Issue #329</span>
+    </div>
+  </header>
+
+  <div id="heatmap-container">
+    <!--
+      data-ws-url overrides the default WebSocket endpoint.
+      Set window.HEATMAP_WS_URL in a config script for production deployments.
+    -->
+    <canvas
+      id="heatmap-canvas"
+      data-ws-url="ws://localhost:9200/ws/envoy-stats"
+    ></canvas>
+  </div>
+
+  <script type="module" src="./src/index.js"></script>
+</body>
+</html>
