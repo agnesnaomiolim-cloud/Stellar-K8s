@@ -3,17 +3,27 @@ name = "flash-loan"
 version = "0.1.0"
 edition = "2021"
 publish = false
+description = "Flash Loan Liquidity Pool with multi-asset vault, dynamic fees, and reentrancy protection."
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
-soroban-sdk = "22"
+soroban-sdk = { version = "=27.0.6", features = ["alloc"] }
 
 [dev-dependencies]
-soroban-sdk = { version = "22", features = ["testutils"] }
+soroban-sdk = { version = "=27.0.6", features = ["testutils", "alloc"] }
 
-[[bench]]
-name = "flash_loan_bench"
-harness = false
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug-assertions = false
+strip = "symbols"
+codegen-units = 1
+lto = true
+
+# Standalone Soroban contract workspace, independent from the root
+# Stellar-K8s binary-crate workspace.
+[workspace]
