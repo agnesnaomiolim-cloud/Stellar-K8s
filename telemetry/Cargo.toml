@@ -1,59 +1,56 @@
 [package]
-name    = "stellar-telemetry"
+name = "stellar-telemetry"
 version = "0.1.0"
 edition = "2021"
 authors = ["Stellar K8s Contributors"]
-description = "Telemetry streaming for Stellar-K8s: Soroban gas profiling and Envoy traffic heatmap"
+description = "Prometheus metrics exporter and rate-limiter proxy for Stellar nodes"
 license = "Apache-2.0"
+repository = "https://github.com/stellar/stellar-k8s"
 
-# ---------------------------------------------------------------------------
-# Core async runtime
-# ---------------------------------------------------------------------------
 [dependencies]
+# Async runtime
 tokio = { version = "1", features = ["full"] }
-futures = "0.3"
 
-# ---------------------------------------------------------------------------
-# HTTP client – used by EnvoyStatsStreamer to poll Envoy admin endpoints
-# ---------------------------------------------------------------------------
+# HTTP server (proxy + exporter endpoints)
+axum = { version = "0.8.8", features = [] }
+
+# HTTP client (upstream scrape)
 reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls-manual-roots",
     "json",
+] }
+
+# Tower middleware utilities (used in tests via ServiceExt)
+tower = { version = "0.4", features = ["util"] }
+
+# Prometheus metrics — newer prometheus-client crate
+prometheus-client = "0.22"
+
+# Serialization — config loading + stats JSON
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Regex — label-drop and series-filter rule matching
+regex = "1"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Pinned to fix RUSTSEC-2026-0009
+time = "0.3.47"
+# Pinned to fix RUSTSEC-2026-0007
+bytes = "1.11.1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["async_tokio"] }
+reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls-manual-roots",
 ] }
 
-# ---------------------------------------------------------------------------
-# Serialisation
-# ---------------------------------------------------------------------------
-serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# ---------------------------------------------------------------------------
-# Prometheus metrics (existing exporter module)
-# ---------------------------------------------------------------------------
-prometheus-client = "0.22"
-prometheus        = { version = "0.13", features = ["process"] }
-lazy_static       = "1"
-
-# ---------------------------------------------------------------------------
-# HTTP server (existing exporter module)
-# ---------------------------------------------------------------------------
-axum = { version = "0.7", features = ["macros"] }
-
-# ---------------------------------------------------------------------------
-# Error handling
-# ---------------------------------------------------------------------------
-thiserror = "1"
-anyhow    = "1"
-
-# ---------------------------------------------------------------------------
-# Logging / tracing
-# ---------------------------------------------------------------------------
-tracing = "0.1"
-
-# ---------------------------------------------------------------------------
-# WebSocket server (used by the WS fan-out layer that feeds heatmap.worker.js)
-# ---------------------------------------------------------------------------
-tokio-tungstenite = { version = "0.23", features = ["rustls-tls-native-roots"] }
-
-[dev-dependencies]
-tokio = { version = "1", features = ["full", "test-util"] }
+[[bench]]
+name = "parser_throughput"
+harness = false

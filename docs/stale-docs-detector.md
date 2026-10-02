@@ -4,7 +4,8 @@
 > is flagged as _stale_.  CI will fail.  Update the doc (or suppress the false
 > positive), then push.
 >
-> Last refreshed: 2026-07-30 (Makefile cleanup target / CONTRIBUTING script conventions).
+> Last refreshed: 2026-09-29 (coverage entry added for the Chaos Mesh
+> chaos-engineering strategy, `docs/testing/chaos-engineering.md`).
 
 ---
 
