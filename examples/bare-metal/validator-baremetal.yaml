@@ -1,0 +1,127 @@
+# Bare-metal validator pinned to a physical NVMe (issue #249).
+#
+# Companion to docs/infrastructure/bare-metal.md §7.3. This manifest assumes:
+#
+#   1. The host drive is formatted and mounted at /var/mnt/stellar, and has
+#      passed examples/scripts/run-fio-benchmark.sh --strict for the validator
+#      profile (see docs/performance/bare-metal-iops.md).
+#   2. A static `local` PersistentVolume exists on that host with
+#      storageClassName: stellar-local-nvme and matching nodeAffinity.
+#   3. The host carries the label stellar.org/storage=nvme-tuned.
+#   4. The StellarNode CRD is installed.
+#
+# Apply with:
+#   kubectl apply -f examples/bare-metal/validator-baremetal.yaml
+#
+# There is no cloud load balancer, no cloud StorageClass, and no cloud-specific
+# annotation anywhere in this file. External access is provided by MetalLB.
+apiVersion: stellar.org/v1alpha1
+kind: StellarNode
+metadata:
+  name: validator-baremetal-1
+  namespace: stellar
+spec:
+  # 'Validator' runs stellar-core and participates in consensus.
+  nodeType: Validator
+
+  # Target network. Swap to testnet while validating the cluster.
+  network: mainnet
+
+  version: "v21.0.0"
+
+  # 'Recent' keeps the current state plus a small history buffer. Use 'Full'
+  # only for archive nodes with the capacity to match.
+  historyMode: Recent
+
+  # The CRD marks these three fields as required.
+  #
+  # minAvailable and maxUnavailable are mutually exclusive — the operator
+  # rejects a spec that sets both. Exactly one must be present.
+  # An empty topologySpreadConstraints list means "no additional constraint
+  # beyond the operator's built-in pod anti-affinity".
+  maxUnavailable: 0
+  topologySpreadConstraints: []
+
+  # Validators are latency-sensitive: reserve real cores rather than bursting.
+  # See docs/resource-limits.md for per-node-type guidance.
+  resources:
+    requests:
+      cpu: "8"
+      memory: "24Gi"
+    limits:
+      cpu: "16"
+      memory: "48Gi"
+
+  storage:
+    # 'Local' tells the operator this node is pinned to a specific host. It
+    # requires either an explicit storageClass or a nodeAffinity, and this
+    # manifest sets both.
+    mode: Local
+
+    # The static local StorageClass from examples/bare-metal/storage-class.yaml.
+    storageClass: stellar-local-nvme
+
+    # Documents intent. For a static `local` PV, Kubernetes does NOT enforce
+    # this against the underlying filesystem — size the PV conservatively and
+    # alert on filesystem usage.
+    size: "3400Gi"
+
+    # 'Retain' prevents the PVC (and therefore the ledger database) from being
+    # deleted when the StellarNode resource is removed.
+    retentionPolicy: Retain
+
+    # Pin the pod to a host that has been benchmarked and labelled. The label
+    # is applied only after the drive passes the fio gate.
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: stellar.org/storage
+                operator: In
+                values:
+                  - nvme-tuned
+
+  # 'Hard' anti-affinity keeps two validators of the same network off one host.
+  # On a three-node cluster with one validator per host this is what you want.
+  podAntiAffinity: Hard
+
+  validatorConfig:
+    # Name of a Secret containing the STELLAR_CORE_SEED key. Create it from a
+    # file, never from shell history:
+    #   kubectl -n stellar create secret generic validator-seed-mainnet \
+    #     --from-file=STELLAR_CORE_SEED=/secure/path/validator.seed
+    seedSecretRef: validator-seed-mainnet
+
+    enableHistoryArchive: true
+    historyArchiveUrls:
+      - "https://history.stellar.org/prd/core-live/core_live_001"
+      - "https://history.stellar.org/prd/core-live/core_live_002"
+
+    # Quorum set in Stellar Core TOML. These addresses are the validator
+    # addresses on the SCP VLAN (see docs/infrastructure/bare-metal.md §5.1).
+    # Stellar Core's QUORUM_SET takes literal addresses, not DNS — so use
+    # stable, documented addresses here rather than a node's transient host IP.
+    quorumSet: |
+      [QUORUM_SET]
+      THRESHOLD_PERCENT=67
+      VALIDATORS=[
+        "10.20.20.11:11625", "10.20.20.12:11625", "10.20.20.13:11625"
+      ]
+
+  # External Postgres. The CRD requires database.secretKeyRef when `database`
+  # is present. See docs/database/optimization-guide.md.
+  database:
+    secretKeyRef:
+      name: stellar-db-credentials
+      key: DATABASE_URL
+
+  # No cloud load balancer: MetalLB advertises the service IP with BGP so SCP
+  # peers reach this validator directly instead of hairpinning through one
+  # speaker node. See docs/infrastructure/bare-metal.md §5.3.
+  loadBalancer:
+    enabled: true
+    mode: BGP
+    addressPool: stellar-scp-pool
+    externalTrafficPolicy: Local
+
+  alerting: true

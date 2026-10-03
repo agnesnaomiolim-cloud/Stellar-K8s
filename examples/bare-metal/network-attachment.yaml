@@ -1,0 +1,158 @@
+# Bare-metal network reference: bond, VLANs, and the SCP isolation policy
+# (issue #249).
+#
+# This file is a *reference* for the physical fabric described in
+# docs/infrastructure/bare-metal.md §5. The host-level bond and VLAN
+# configuration is not a Kubernetes object — it lives in the Talos machine
+# config (§3.3) or the OS network manager (§4.4). What Kubernetes owns, and
+# what this file therefore contains, is:
+#
+#   1. The node labels that the storage topology keys off.
+#   2. A default-deny NetworkPolicy for the `stellar` namespace that permits
+#      SCP (tcp/11625) only between validator pods.
+#   3. A MetalLB IPAddressPool / BGPAdvertisement reference for the SCP VLAN.
+#
+# The host-side reference config is included as comments so an operator
+# building the fabric has both halves in one place.
+#
+# Apply with:
+#   kubectl apply -f examples/bare-metal/network-attachment.yaml
+
+# ── 1. Node labels ────────────────────────────────────────────────────────────
+# Labels are applied with `kubectl label node`, not declaratively (node objects
+# are owned by the kubelet). Listed here as the contract the rest of the
+# manifests depend on:
+#
+#   kubectl label node stellar-cp-1 \
+#     stellar.org/storage=nvme-tuned \
+#     stellar.org/network=scp-vlan-20 \
+#     stellar.org/role=validator
+#
+# ── 2. SCP isolation ──────────────────────────────────────────────────────────
+# Default-deny ingress and egress for the namespace, then allow exactly the
+# traffic a validator needs. This is the Kubernetes half of the VLAN 20
+# segmentation: even if a pod is scheduled on the wrong host, it still cannot
+# reach a peer on the management network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stellar-validator-scp
+  namespace: stellar
+  labels:
+    app.kubernetes.io/part-of: stellar-k8s
+    stellar.org/purpose: scp-isolation
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: stellar-validator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # SCP peers: other validators in this namespace, on the peer port only.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: stellar-validator
+      ports:
+        - protocol: TCP
+          port: 11625
+    # Operator reconciliation and metrics scraping.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: stellar-system
+      ports:
+        - protocol: TCP
+          port: 11626
+        - protocol: TCP
+          port: 9100
+  egress:
+    # Peer with other validators.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: stellar-validator
+      ports:
+        - protocol: TCP
+          port: 11625
+    # Reach external SCP peers on the SCP VLAN. Restrict this CIDR to the
+    # actual peer subnets — 0.0.0.0/0 here would defeat the segmentation.
+    - to:
+        - ipBlock:
+            cidr: 10.20.20.0/24
+      ports:
+        - protocol: TCP
+          port: 11625
+    # History archive fetch/publish over HTTPS.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ── 3. MetalLB pools for the bare-metal fabric ────────────────────────────────
+# The SCP pool is not auto-assigned: a Service must opt in with
+# metallb.universe.tf/address-pool, so a validator cannot accidentally claim a
+# peer address. The general pool backs Horizon/RPC services.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: stellar-scp-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    # A routed block on the SCP VLAN, allocated by your network team.
+    - 10.20.20.100/32
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: stellar-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.100.0/28
+---
+# BGP advertisement for the SCP pool. BFD is configured so a dead path is
+# detected in under a second, before Stellar Core's own peer timeouts fire.
+# See docs/infrastructure/bare-metal.md §5.3 for the BGPPeer and BFDProfile.
+apiVersion: metallb.io/v1beta1
+kind: BGPAdvertisement
+metadata:
+  name: stellar-scp
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - stellar-scp-pool
+  aggregationLength: 32
+  localPref: 200
+  communities:
+    - 64512:100
+---
+# ── 4. Host-side fabric reference (not a Kubernetes object) ───────────────────
+# Kept here so both halves of the design live together. This is the equivalent
+# of the Talos machine config in docs/infrastructure/bare-metal.md §3.3 and the
+# netplan config in §4.4:
+#
+#   bond0:     802.3ad LACP, layer3+4 hashing, miimon=100, MTU 9000
+#   bond0.20:  VLAN 20 — SCP / peer-to-peer, 10.20.20.0/24, MTU 9000
+#   bond0.30:  VLAN 30 — storage replication / backup, 10.20.30.0/24, MTU 9000
+#   eno3/eno4: BMC out-of-band, unmanaged by the cluster
+#
+# Verify with:
+#   cat /proc/net/bonding/bond0
+#   ip -br link show type vlan
+#   ping -M do -s 8972 -c 3 10.20.20.12

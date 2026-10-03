@@ -1,0 +1,99 @@
+# Bare-metal StorageClasses for Stellar-K8s (issue #249).
+#
+# This file is deliberately cloud-free: no AWS/GCP/Azure CSI provisioner, no
+# cloud disk parameters, and no cloud load-balancer annotations. It is the
+# source of truth referenced by docs/infrastructure/bare-metal.md §6.
+#
+# Apply with:
+#   kubectl apply -f examples/bare-metal/storage-class.yaml
+#
+# All three classes share the settings that matter for a stateful Stellar node:
+#
+#   volumeBindingMode: WaitForFirstConsumer
+#     Bind the volume only once the pod is scheduled, so the PV lands on the
+#     host the pod actually runs on. With Immediate binding a local volume can
+#     be created on a host the pod can never reach.
+#
+#   reclaimPolicy: Retain
+#     Never let Kubernetes delete the underlying directory. A ledger database
+#     is not reproducible from the network in a reasonable time; the reclaim
+#     policy is the last line of defence against a fat-fingered `kubectl
+#     delete`.
+#
+#   allowVolumeExpansion: false
+#     Local filesystems cannot be grown online. Claiming otherwise makes the
+#     operator attempt a resize that the kubelet will reject.
+
+# ── 1. Static local NVMe (recommended for validators) ─────────────────────────
+# `kubernetes.io/no-provisioner` means "no dynamic provisioning at all": the
+# operator must create the PersistentVolume by hand. This is the most
+# predictable option and the one that keeps a validator pinned to one physical
+# host. See docs/infrastructure/bare-metal.md §6.2 for the matching PV.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: stellar-local-nvme
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: false
+---
+# ── 2. Local Path Provisioner (recommended for archive nodes) ────────────────
+# Dynamic provisioning onto a directory on each host. Install the provisioner
+# first, then point its ConfigMap at the tuned mount so volumes do not land on
+# the OS disk:
+#
+#   kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.37/deploy/local-path-storage.yaml
+#
+# The `defaultVolumeType: local` annotation makes the provisioner create real
+# `local` PersistentVolumes (with node affinity) instead of `hostPath` ones.
+# A `hostPath` PV has no topology, so a rescheduled pod can silently mount a
+# different host's directory.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: stellar-local-path
+  annotations:
+    defaultVolumeType: local
+provisioner: rancher.io/local-path
+parameters:
+  # Must match a path listed in the local-path-config ConfigMap nodePathMap.
+  nodePath: /var/mnt/stellar/local-path
+  # Required prefix. The rendered path must start with
+  # "{{ .PVC.Namespace }}/{{ .PVC.Name }}/" and must not contain "../".
+  # Do not set allowUnsafePathPattern: "true" (CVE-2025-62878).
+  pathPattern: "{{ .PVC.Namespace }}/{{ .PVC.Name }}/"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: false
+---
+# ── 3. OpenEBS Local PV Hostpath (larger fleets) ──────────────────────────────
+# Adds capacity accounting and topology control on top of the Local Path
+# approach. `allowedTopologies` makes the scheduler place the pod only on hosts
+# that carry the label, which is what you want when only some nodes have a
+# tuned NVMe. Label hosts after they pass the fio benchmark:
+#
+#   kubectl label node <node> stellar.org/storage=nvme-tuned
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: stellar-openebs-nvme
+  annotations:
+    openebs.io/cas-type: local
+    cas.openebs.io/config: |
+      - name: StorageType
+        value: "hostpath"
+      - name: BasePath
+        value: "/var/mnt/stellar/openebs"
+      - name: FilePermissions
+        data:
+          mode: "0770"
+provisioner: openebs.io/local
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: false
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: stellar.org/storage
+        values:
+          - nvme-tuned
