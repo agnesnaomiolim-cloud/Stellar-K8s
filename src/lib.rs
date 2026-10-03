@@ -130,6 +130,7 @@ pub mod schema_registry;
 pub mod sdk;
 pub mod search;
 pub mod security;
+pub mod simulation_cache;
 #[path = "telemetry.rs"]
 pub mod telemetry;
 pub mod version_check;
