@@ -481,6 +481,18 @@ pub async fn run_operator(args: RunArgs) -> Result<(), Error> {
         }
     }
 
+    // Start the finalizer cleanup recovery controller.
+    // Runs every 30 s, finds StellarNodes stuck in Terminating due to crashed
+    // controller instances, verifies cloud volumes are detached, then safely
+    // removes stuck finalizers.
+    {
+        let cleanup_client = client.clone();
+        tokio::spawn(async move {
+            controller::run_finalizer_cleanup_controller(cleanup_client).await;
+        });
+        info!("Finalizer cleanup recovery controller spawned");
+    }
+
     let result = tokio::select! {
         res = controller::run_controller(state) => {
             res
