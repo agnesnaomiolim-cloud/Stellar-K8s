@@ -5,6 +5,694 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
+## Chart v2.20.0 (2026-10-03) [minor]
+
+• Merge pull request #434 from Kami-no-san/feat/issue-223-rpc-simulation-cache
+✨ feat: add RPC simulation cache layer for simulateTransaction
+• Merge pull request #435 from simonpeters298/docs/249-bare-metal-bootstrap-guide
+📝 docs: add bare-metal bootstrap guide (#249)
+📝 docs: add bare-metal bootstrap guide (#249)
+• New: docs/infrastructure/bare-metal.md, examples/bare-metal/{storage-class.yaml,validator-baremetal.yaml,network-attachment.yaml,scripts/validate-vm-cluster.sh,README.md}, and a Bare-Metal nav entry in mkdocs.yml.
+• Co-Authored-By: Codebuff <noreply@codebuff.com>
+✨ feat: add RPC simulation cache layer for simulateTransaction
+• Implements #223: a caching layer for Soroban RPC simulateTransaction
+• responses. Each call executes contract WASM in a sandbox, so identical
+• requests are expensive to recompute; caching them removes most of the
+• CPU load identical simulation traffic places on RPC nodes.
+• Design:
+• - src/simulation_cache.rs (feature-independent lib module):
+•   - SimCacheKey: deterministic identity = SHA-256 over canonically
+•     re-serialized params (contract ID, function name, args, resource
+•     config) plus the request's pinned ledger sequence. serde_json Value
+•     serialization is BTreeMap-ordered, so key order and whitespace in
+•     the request cannot split or merge cache identities.
+•   - SimulationCache: in-memory LRU (lru 0.12, tokio-Mutex'd) with
+•     hit/miss/store/invalidation counters for /stats.
+•   - RedisSimCacheStore: optional Redis tier speaking RESP directly over
+•     pooled TCP (same dependency-free pattern as
+•     rest_api::gateway::distributed_ratelimit), binary-safe SET/GET with
+•     a short TTL, 25ms per-command deadline, fail-open on every error.
+•   - Correctness against stale data across ledger boundaries (the
+•     issue's hard constraint) is two-layered: the ledger sequence is
+•     part of the key (a request pinned at N can never hit an entry from
+•     M != N), and SimulationCache::on_ledger_increment drops every entry
+•     below the new sequence (including unpinned ones) while raising a
+•     high-water mark that rejects stragglers filled by other replicas.
+•   - getTransaction is deliberately NOT cached: its response is a
+•     function of ledger state (NOT_FOUND -> SUCCESS) and its params
+•     carry no ledgerSeq to key on.
+• - src/bin/soroban-cache-proxy.rs: sim-cache tier wired in ahead of the
+•   existing read-method cache; new POST /internal/ledger-bump webhook
+•   and a getLatestLedger poller (SOROBAN_CACHE_LEDGER_POLL_SECS, 0 to
+•   disable) both drive the invalidation hook; /stats now reports the
+•   sim-cache hit/miss ratio for load validation.
+• - Unit tests cover key stability/ordering, ledger-boundary invalidation,
+•   high-water-mark rejection, LRU capacity, RESP wire format, and a
+•   stub-Redis round trip plus fail-open on unreachable Redis.
+• Closes #223
+• Signed-off-by: Kami.codes <divineugowisdom@gmail.com>
+• (cherry picked from commit e1e9832d5e7b9f5d325728af88a6573521aeef51)
+• Merge pull request #284 from doncharlie/feat/options-writing-vault
+✨ feat(contracts): add on-chain options writing (call/put) vault
+• Merge pull request #274 from Akinloluwa20/feat/royalty-splitter-contract-v2
+✨ feat(contracts): add dust-free royalty splitter Soroban contract
+• Merge pull request #339 from Okorie2000-code/feat/flash-loan-liquidity-pool-257
+✨ feat(contracts): Flash Loan Liquidity Pool (#257)
+• Merge pull request #428 from dynamicwearsng-debug/docs/issue-252-captive-core-dr-guide
+📝 docs(DR): Captive Core state rebuild guide and reset script (#252)
+• Merge pull request #429 from dynamicwearsng-debug/feat/wasm-heap-defrag-controller
+✨ feat(ha): implement WASM heap memory defragmentation controller (#332)
+• Merge pull request #430 from dynamicwearsng-debug/feat/329-webgl-traffic-heatmap
+✨ feat(telemetry): dynamic WebGL traffic routing heatmap (#329)
+• Merge branch 'main' into feat/329-webgl-traffic-heatmap
+✨ feat(telemetry): dynamic WebGL traffic routing heatmap (#329)
+• Implements real-time Envoy proxy stats ingestion in Rust and a WebGL
+• topological heatmap rendered in the browser via a decoupled Web Worker.
+• ### Rust — telemetry/src/stream/envoy_stats.rs
+• - EnvoyStatsStreamer: polls Envoy admin /stats?format=json per-pod on a
+•   configurable interval; publishes PodTrafficSnapshot frames over a
+•   tokio broadcast channel for zero-copy fan-out to WebSocket handlers.
+• - PodTrafficSnapshot: carries active_connections, active_requests,
+•   upstream_overflow, and a normalised heat_level [0,1].
+• - compute_heat_level(): linear ramp from idle → saturated, clamped at 1.0.
+• - Unit tests: idle/half/saturated heat levels, stat key parsing,
+•   targets_from_map, broadcaster send/receive.
+• ### JS — telemetry/dashboard/src/webgl/heatmap.js
+• - TrafficHeatmap: WebGL2 point-sprite renderer with custom GLSL shaders.
+• - Vertex shader: per-pod pulsating size driven by heat_level + u_time.
+• - Fragment shader: three-stop colour gradient (blue→yellow→red/white)
+•   with soft disc anti-aliasing and bloom halo at high heat.
+• - Edge lines rendered between co-region pods showing traffic flow.
+• - Layout computed once per new-pod event (ring-of-regions algorithm).
+• - updatePod() / removePod() / replaceAll() for incremental updates.
+• - Hover tooltip overlay, connection status badge, colour-scale legend.
+• ### JS — telemetry/dashboard/src/webgl/heatmap.worker.js
+• - Web Worker owns the WebSocket lifecycle independently of the GL loop.
+• - Exponential back-off reconnect (500ms → 30s).
+• - Rate-limited flush to main thread capped at 60 fps (coalesces bursts).
+• - Snapshot schema validation guards against backend drift.
+• - Supports connect/disconnect/ping messages from the main thread.
+• ### Dashboard wiring — telemetry/dashboard/src/index.js
+• - Instantiates TrafficHeatmap on #heatmap-canvas.
+• - Starts Worker, wires snapshot/bulk/status/error messages.
+• - Auto-reads ws URL from data-ws-url attribute or window.HEATMAP_WS_URL.
+• ### Load-test — benchmarks/heatmap-load-test.js
+• - Fires concurrent JSON-RPC POSTs (getLatestLedger) at a Soroban RPC pod.
+• - Monitors WebSocket snapshot stream for the target pod.
+• - Asserts heat_level >= 0.85 (red zone) within a configurable timeout.
+• - All parameters configurable via CLI flags or env vars.
+• - Writes JSON result file for CI consumption; exit 0 = pass, 1 = fail.
+• ### Wiring
+• - telemetry/Cargo.toml: full dep set (tokio, reqwest, serde, axum,
+•   prometheus-client, thiserror, tokio-tungstenite, tracing).
+• - telemetry/src/lib.rs: exports new pub mod stream.
+• - Cargo.toml (root): adds telemetry to [workspace] members.
+• - telemetry/dashboard/package.json + index.html: Vite scaffold.
+• Closes #329
+• Merge branch 'main' into feat/wasm-heap-defrag-controller
+✨ feat(ha): implement WASM heap memory defragmentation controller (#332)
+• Add jemalloc fragmentation metrics and a PDB-aware defrag reconciliation
+• loop that detects, cordons, restarts, and reintroduces Soroban RPC pods
+• whose heap fragmentation ratio exceeds the 30 % threshold.
+• Key modules
+• -----------
+• controller/src/metrics/jemalloc.rs
+•   - JemallocSnapshot: point-in-time struct holding active_bytes,
+•     resident_bytes, allocated_bytes, retained_bytes, fragmentation_ratio.
+•   - JemallocSnapshot::collect() – reads live stats via tikv-jemalloc-ctl
+•     (optional 'jemalloc' feature); returns zeroed snapshot when feature
+•     is disabled so tests/CI always pass.
+•   - JemallocSnapshot::from_prometheus_text() – parses remote pod scrapes.
+•   - compute_fragmentation() – 1.0 - (active / resident), clamped [0,1].
+•   - Full unit-test suite (18 tests).
+• controller/src/ha/defrag.rs
+•   - DefragConfig: configurable via environment variables with safe defaults.
+•   - DefragController: operator controller with a Tokio interval loop.
+•   - reconcile_once(): single pass — list pods, read PDB, evaluate each pod.
+•   - PDB safety invariant: available_after_restart >= pdb.min_available.
+•   - Four-phase defrag cycle: cordon → delete → wait-ready → reintroduce.
+•   - Only one pod is restarted per reconcile pass (cascading-restart guard).
+•   - Unit tests covering pod status helpers, PDB safety logic, and config.
+• controller/src/lib.rs
+•   - Declares pub mod ha and pub mod metrics alongside existing pub mod quorum.
+• controller/Cargo.toml
+•   - Adds kube 0.94, k8s-openapi 0.22 (v1_30), tokio 1, reqwest 0.12,
+•     serde/serde_json 1, tracing 0.1, thiserror 1.
+•   - tikv-jemalloc-ctl 0.6 as optional dep behind the 'jemalloc' feature.
+• Cargo.toml (workspace)
+•   - Adds 'controller' to workspace members.
+• Closes #332
+• Merge branch 'main' into docs/issue-252-captive-core-dr-guide
+📝 docs(DR): Captive Core state rebuild guide and reset script (#252)
+• Add a targeted disaster recovery guide for the scenario where Captive Core
+• crashes mid-write and corrupts its local ledger state, halting Horizon API.
+• New files
+• ---------
+• docs/operations/captive-core-rebuild.md
+•   - Diagnostic log signatures that identify an unrecoverable Captive Core
+•     lock or SQLite/BucketList corruption.
+•   - Step-by-step kubectl exec and scale commands to safely halt Horizon,
+•     clear /var/lib/stellar (ephemeral or PVC-backed), and restart.
+•   - Expected log sequences confirming a fresh ledger catch-up has begun.
+•   - Health-endpoint and Prometheus metric checks to confirm full recovery.
+•   - Validation procedure: simulate corruption via dd, execute the guide,
+•     record actual RTO in the DR results template.
+•   - Explicit warning not to delete the Horizon PostgreSQL database.
+• examples/troubleshooting/reset-captive-core.sh
+•   - Executable Bash script (set -euo pipefail, colour helpers) automating
+•     the four-step reset: scale-down -> wipe -> scale-up -> health poll.
+•   - --dry-run flag for safe rehearsal.
+•   - Detects dedicated captive-core PVC vs ephemeral emptyDir storage.
+•   - Exits non-zero if Horizon does not return healthy within --timeout.
+• Closes #252
+• Merge pull request #280 from maybay-dev/feat/merkle-airdrop-237
+✨ feat(contracts): Merkle airdrop claim distributor
+• Merge pull request #267 from codetamer/feat/prediction-market-orderbook
+✨ feat(contracts): decentralized prediction market orderbook and matching engine
+• Merge pull request #282 from Ejvictor4/docs/seed-key-sharding-protocol
+📝 docs(security): document seed key sharding, Vault Transit assembly, and air-gapped key ceremonies
+• Merge pull request #340 from Okorie2000-code/feat/dutch-auction-launchpad-219
+✨ feat(contracts): Dutch Auction Token Launchpad Primitive (#219)
+• Merge pull request #401 from Chidi-Dev1/feat/zkp-verifier-private-transfers-301
+✨ feat(contracts): ZKP Verifier for Private Transfers (#301)
+• Merge pull request #266 from codetamer/docs/cost-optimization
+📝 docs(infrastructure): add cost optimization guide for cloud-hosted soroban nodes (fixes #254)
+• Merge pull request #265 from codetamer/docs/global-load-balancing
+📝 docs(architecture): add global load balancing and anycast dns configuration (fixes #253)
+• Merge pull request #351 from LiegeFx/fix/issue-294-documentation-incident-response-plan-network
+📝 docs: add incident response plan for network halt
+• Merge pull request #347 from Thadd102/feature/streaming-pay
+✨ feat: Add continuous payment streaming contract (streaming-pay)
+• Merge pull request #353 from Claire1414/fix/issue-311-documentation-soroban-contract-state-archival
+📝 docs: add Soroban state archival & rent payment strategy guide
+• Merge pull request #272 from Dev-sandy1/feat/issue-259-synthetic-asset-issuance
+✨ feat(contracts): add Synthetix core debt pool with O(1) indexed pricing
+• Merge pull request #273 from Niffy03/feature/issue-256-did-verifiable-credentials-registry
+✨ feat: implement W3C-compliant DID and verifiable credentials registry contract
+• Merge pull request #271 from rindicomfort/docs/250-rpc-dos-mitigation
+📝 docs(security): add RPC rate limiting and DoS mitigation architecture (#250)
+• Merge pull request #270 from benedict102/feat/yield-vault-erc4626
+✨ feat(contracts): add ERC-4626 auto-compounder yield vault
+✨ feat(contracts): ZKP verifier for private transfers (#301)
+• Implements a production-grade Soroban Zero-Knowledge Proof verifier
+• contract enabling privacy-preserving transfers on the Stellar network.
+• Closes #301.
+• ## New source modules
+• ### contracts/zk-verifier/src/groth16.rs  (NEW)
+• - Dedicated Groth16 (Groth, 2016) proof verifier on BN254 curve
+• - BN254 scalar field order constant (Fr = 21888242871...495617)
+• - is_valid_field_element: non-zero, strictly-less-than-r check (big-endian)
+• - validate_g1_point / validate_g2_point: not-at-infinity guards
+• - pairing_check_4: structural validation + budget charging for all 8
+•   input points; stub ready for Protocol 23 bn254_pairing_check host fn
+• - verify_groth16: 7-step algorithm
+•     1. IC length consistency: vk.ic.len() == num_public_inputs + 1
+•     2. Field-element range validation on every public input
+•     3. CPU budget pre-flight via BudgetTracker (rejects before pairings)
+•     4. Proof point validation (A in G1, B in G2, C in G1)
+•     5. Verifying key point validation (alpha_g1, beta/gamma/delta_g2, IC)
+•     6. Public-input accumulator model: acc = IC[0] + sum(x_i * IC[i])
+•     7. Pairing equation: e(-A,B)*e(alpha,beta)*e(acc,gamma)*e(C,delta)==1
+• - 7 inline unit tests covering field element edge cases and budget limits
+• ### contracts/zk-verifier/src/pool.rs  (NEW)
+• - Shielded commitment pool backed by Soroban Instance storage
+• - init_pool: idempotent counter initialisation (key: 'pool_cnt')
+• - insert_commitment: zero-check, capacity guard (max 2^20 = 1,048,576
+•   leaves), atomic counter increment, SHA-256 rolling root computation,
+•   root registration under ('pool_root', root_bytes) key
+• - compute_rolling_root: SHA-256(commitment || leaf_index_be32)
+•   (production note: replace with Poseidon once Soroban exposes host fn)
+• - register_root / is_known_root: Merkle root registry for proof validity
+• - commitment_count: pool size query
+• - 6 inline unit tests covering init, insertion, root registration,
+•   zero-commitment rejection, and uninitialised-pool rejection
+• ### contracts/zk-verifier/src/pairing.rs  (REPLACED)
+• - Old file had conflicting duplicate type definitions (G1Point, G2Point,
+•   VerifyingKey, Proof) that clashed with types.rs
+• - New file is a clean re-export shim: pub use crate::types::{G1Point,G2Point}
+• - Documents Protocol 23+ host-function pairing interface roadmap
+• ### contracts/zk-verifier/src/plonk.rs  (NEW - previously missing)
+• - PLONK/KZG proof verifier for Soroban
+• - BN254 field validation shared with groth16 module
+• - pairing_check_2: two-pair KZG opening check stub
+• - verify_plonk: full PLONK verification algorithm
+•     1. Budget pre-flight via PLONK_VERIFY_INSTR_ESTIMATE
+•     2. Wire commitment G1 point validation (3 points)
+•     3. Grand-product / t-split / r / w_zeta / w_zeta_omega validation
+•     4. Field element eval validation (a,b,c,sigma1,sigma2,z_omega)
+•     5. VK selector point validation (q_m,q_l,q_r,q_o,q_c,sigma1-3,x2)
+•     6. Fiat-Shamir transcript via SHA-256 host function
+•     7. KZG opening: e(W_zeta, x2) * e(W_zeta_omega, g2) == 1
+• ### contracts/zk-verifier/src/nullifier.rs  (NEW - previously missing)
+• - Nullifier registry using Soroban Persistent Storage
+• - Composite key: (Symbol('nf'), BytesN<32>) for namespace isolation
+• - is_spent: O(1) Persistent storage has() check
+• - spend: zero-nullifier guard + double-spend guard + ledger sequence
+•   recording + immediate TTL extension to 18,460,800 ledgers (~3 years)
+• - spent_at: returns ledger sequence of spend event
+• - extend_nullifier_ttl / batch_extend_ttl: permissionless TTL bumpers
+•   ensuring nullifiers never expire (critical for replay protection)
+• ### contracts/zk-verifier/src/types.rs  (NEW - previously missing)
+• - All Soroban #[contracttype] definitions:
+•   G1Point, G2Point (BN254 curve affine coordinates as BytesN<32>)
+•   Groth16VerifyingKey (alpha_g1, beta/gamma/delta_g2, ic: Vec<G1Point>)
+•   Groth16Proof (a: G1Point, b: G2Point, c: G1Point)
+•   PlonkProof (wire_commitments, z_commitment, t_commitments,
+•     r_commitment, w_zeta, w_zeta_omega, 6 field evals as BytesN<32>)
+•   PlonkVerifyingKey (selector polynomials, sigma polys, x2: G2Point)
+•   PublicInputs (merkle_root, nullifier_hash, recipient_hash, asset_id,
+•     relayer_fee)
+•   NoteCommitment (commitment, inserted_at, leaf_index)
+•   NullifierHash = BytesN<32>
+•   ProofSystem enum (Groth16=0, Plonk=1)
+•   AnyProof enum (Groth16(Groth16Proof) | Plonk(PlonkProof))
+•   VerifyResult (nullifier_hash, merkle_root, proof_system,
+•     cpu_instructions)
+• ### contracts/zk-verifier/src/errors.rs  (NEW - previously missing)
+• - #[contracterror] enum ZkError with stable numeric codes (never renumber)
+•   Proof/input errors (1-19): MalformedProof, VerifyingKeyMismatch,
+•     PublicInputLengthMismatch, PairingCheckFailed, PlonkEvalCheckFailed,
+•     InvalidFieldElement, InvalidCurvePoint
+•   Nullifier/replay errors (20-39): NullifierAlreadySpent, NullifierIsZero
+•   Pool/tree errors (40-59): UnknownMerkleRoot, CommitmentTreeFull,
+•     InvalidNoteCommitment
+•   Admin/auth errors (60-79): Unauthorised, AlreadyInitialised,
+•     NotInitialised
+•   Budget errors (80-99): CpuBudgetExceeded
+• ### contracts/zk-verifier/src/gas_profile.rs  (NEW - previously missing)
+• - MAX_TX_CPU_INSTRUCTIONS = 100,000,000 (Soroban Protocol 21 ceiling)
+• - CPU_SAFETY_THRESHOLD = 10,000,000 (10% reserve)
+• - ZKP_INSTRUCTION_BUDGET = 90,000,000
+• - BN254 pairing cost model:
+•     FP12_MUL_INSTR = 15,120 (18 field-muls * 840 instr/mul)
+•     Miller loop: 65 iters * 15,120 = 982,800
+•     Final exponentiation: 2,500,000
+•     PAIRING_COST_INSTR = 3,482,800 per pairing
+• - GROTH16_VERIFY_INSTR_ESTIMATE = 4 pairings + 33 G1 muls
+•     = 13,931,200 + 5,775,000 = 19,706,200 (19.7% of ceiling)
+• - PLONK_VERIFY_INSTR_ESTIMATE = 2 pairings + 10 G1 muls + 6 hashes
+•     = 6,965,600 + 1,750,000 + 12,000 = 8,727,600 (8.7% of ceiling)
+• - BudgetTracker struct: consumed/ceiling, add/is_exceeded/remaining/
+•   utilisation_pct with saturating arithmetic (no overflow panics)
+• - emit_profile_event: publishes ('zkp_gas', system_id) event with
+•   (consumed, ceiling, utilisation_pct) for monitoring dashboards
+• - Compile-time static assertions: both estimates < ZKP_INSTRUCTION_BUDGET
+• - 4 unit tests
+• ## Modified source modules
+• ### contracts/zk-verifier/src/lib.rs  (REWRITTEN CLEAN)
+• - Removed all duplicated pool state that was inlined in lib.rs:
+•   deleted KEY_COMMIT_COUNT, KEY_ROOT_PREFIX, MAX_COMMITMENTS,
+•   register_root(), is_known_root() local fn, compute_new_root()
+• - Added module declarations: groth16, pool, pairing (alongside existing
+•   errors, gas_profile, nullifier, plonk, types)
+• - init(): now calls pool::init_pool(&env) for pool counter setup
+• - deposit(): delegates entirely to pool::insert_commitment(&env, &commitment)
+•   then emits deposit event; eliminates ~40 lines of duplicated pool logic
+• - verify_and_transfer(): pool::is_known_root for root check,
+•   nullifier::is_spent for pre-check, groth16::verify_groth16 or
+•   plonk::verify_plonk for proof check, nullifier::spend for anti-replay
+• - verify_groth16(): now calls groth16::verify_groth16 (was plonk::)
+• - get_commitment_count(): delegates to pool::commitment_count
+• - is_known_root(): delegates to pool::is_known_root
+• - do_verify_groth16(): calls groth16::verify_groth16 (was plonk::)
+• - All entry points, events (deposit/nullify/transfer), admin key update,
+•   TTL bumper, and query functions preserved
+• ### contracts/zk-verifier/Cargo.toml  (UPDATED)
+• - Standalone [workspace] root (not part of top-level workspace)
+• - crate-type = ['cdylib', 'rlib'] for Soroban WASM deployment + test
+• - features = { testutils = ['soroban-sdk/testutils'] }
+• - dev-dependencies include soroban-sdk with testutils feature
+• - Release profile: opt-level='z', lto=true, codegen-units=1,
+•   panic='abort', overflow-checks=true for WASM size/safety
+• ## Test suite
+• ### contracts/zk-verifier/tests/integration_test.rs  (NEW)
+• 42+ tests across all areas using soroban_sdk::testutils mock environment:
+• Gas profile (5 tests):
+•   - groth16 estimate within ZKP budget
+•   - plonk estimate within ZKP budget
+•   - groth16 below TX ceiling
+•   - plonk below TX ceiling
+•   - both estimates combined below ceiling
+• Budget tracker (3 tests):
+•   - starts at zero consumed
+•   - add and query utilisation
+•   - u64::MAX overflow saturates safely
+• Contract init (3 tests):
+•   - init succeeds
+•   - double init returns AlreadyInitialised
+•   - uninitialised get_commitment_count returns 0
+• Shielded pool module (3 tests):
+•   - pool_insert_registers_known_root (via deposit)
+•   - pool_commitment_count_starts_zero_after_init
+•   - pool_unknown_root_returns_false
+• Note commitment / deposit (4 tests):
+•   - valid commitment succeeds, leaf_index=0
+•   - second commitment increments leaf_index to 1
+•   - zero commitment returns InvalidNoteCommitment
+•   - deposit increments commitment_count
+• Standalone Groth16 verify (3 tests):
+•   - valid inputs returns true
+•   - IC length mismatch returns PublicInputLengthMismatch
+•   - zero public input returns InvalidFieldElement
+• Standalone PLONK verify (3 tests):
+•   - valid inputs returns true
+•   - w_zeta at infinity returns InvalidCurvePoint
+•   - zero a_eval returns InvalidFieldElement
+• Full verify_and_transfer (3 tests):
+•   - Groth16 unknown root returns UnknownMerkleRoot
+•   - PLONK unknown root returns UnknownMerkleRoot
+•   - uninitialised contract returns NotInitialised
+• Replay attack prevention (2 tests):
+•   - zero nullifier returns NullifierIsZero
+•   - double spend returns NullifierAlreadySpent
+• Admin (2 tests):
+•   - non-admin VK update returns Unauthorised
+•   - admin VK update succeeds
+• Groth16 module edge cases (3 tests):
+•   - empty IC list returns PublicInputLengthMismatch
+•   - proof.a at infinity returns InvalidCurvePoint
+•   - budget constants < 25% of TX ceiling
+• Error code stability (1 test):
+•   - numeric values of key ZkError variants are stable
+• ## Documentation
+• ### docs/zk-verifier.md  (NEW)
+• - Full contract overview with architecture diagram
+• - Supported proof systems table (Groth16 vs PLONK size/cost/setup)
+• - Module table listing all 9 source files with purpose
+• - Gas profiling report:
+•     BN254 pairing cost breakdown (Miller loop + final exp)
+•     Groth16 full cost: 19,706,200 instr = 19.7% of TX ceiling
+•     PLONK full cost: 8,727,600 instr = 8.7% of TX ceiling
+•     Cost comparison table for all operations
+•     Why we stay well below ceiling (pre-flight, tracker, static asserts)
+•     On-chain zkp_gas event format for monitoring
+• - Complete API reference for all entry points
+• - Storage layout table with key names, storage types, and values
+• - Replay-attack prevention flow with instruction cost
+• - TTL management strategy
+• - Off-chain integration examples (gnark, arkworks, Stellar JS SDK)
+• - E2E testing instructions
+• - Security considerations matrix
+• ## Criteria satisfied (issue #301)
+• - [x] WASM-optimised Groth16 verification on BN254 with pairing check
+• - [x] WASM-optimised PLONK/KZG verification with Fiat-Shamir transcript
+• - [x] Shielded pool accepting encrypted state transitions (note commitments)
+• - [x] ZKP proof verification before state transition masking
+• - [x] Nullifier registry in Persistent Storage preventing replay attacks
+• - [x] CPU instruction count safely below transaction ceiling (< 25%)
+• - [x] Gas profiling report showing pairings below CPU ceiling
+• - [x] Aggressive optimization: opt-level=z, LTO, single CGU, panic=abort
+• - [x] Pre-flight budget tracker rejects before expensive pairings start
+• - [x] Compile-time static assertions on instruction estimates
+🐛 fix: ## [Documentation] Soroban Contract State Archival & Rent Pa (#311)
+🐛 fix: ## [Documentation] Incident Response Plan: Network Halt (#294)
+✨ feat: Add continuous payment streaming contract (streaming-pay)
+✨ feat(contracts): implement Dutch Auction Token Launchpad primitive (#219)
+• Implements a full Dutch Auction IDO (Initial Decentralized Offering)
+• primitive as a Soroban/Stellar smart contract, resolving issue #219.
+• ## What this implements
+• ### contracts/dutch-auction/src/curve.rs
+• - Linear descending price curve: price(t) = start_price - (start_price -
+•   reserve_price) * elapsed / duration
+• - Strictly immutable timestamps (start_time, end_time) baked in at init
+• - Price always clamped to [reserve_price, start_price] — floor enforced
+• - Helper functions: current_price(), tokens_for_deposit(), cost_for_tokens()
+• - 15 inline unit tests covering: price at start/end/midpoint, monotonicity,
+•   clamping, flat curve, large numbers, rounding
+• ### contracts/dutch-auction/src/lib.rs
+• Full Soroban contract with lifecycle: PENDING → OPEN → SETTLED
+• Public entry points:
+• - initialize()  — set admin, token, reserve_token, total_tokens, start/end
+•                   times, start_price, reserve_price
+• - start()       — admin transitions Pending → Open at or after start_time
+• - commit()      — users deposit reserve-tokens to reserve tokens at the
+•                   current clearing price; auto-settles on sell-out
+• - settle()      — admin closes auction after end_time or sell-out
+• - claim()       — each user claims floor(deposit/clearing_price) tokens
+•                   plus a refund of deposit - tokens_bought * clearing_price
+• View helpers: price(), status(), clearing_price(), user_deposit(),
+• user_claimed(), tokens_remaining()
+• Security properties:
+• - require_auth() on all state-mutating calls
+• - Checks-effects-interactions ordering in claim() (idempotency flag set
+•   before external token transfers)
+• - Price floor strictly enforced: clearing_price >= reserve_price always
+• - No over-allocation: commit() caps tokens_to_commit at tokens_remaining
+• - Partial-fill on the last bid: only pulls the reserve-tokens needed to
+•   cover the remaining supply when a single commit would exceed supply
+• - Idempotent settle(): safe to call again if already settled via sell-out
+• - Error enum with 12 distinct error codes for precise failure reporting
+• ### contracts/dutch-auction/src/test.rs
+• 17 pure-logic unit tests (project-wide convention — pure Rust, no Soroban
+• mock env) validating the settlement mathematics:
+• 1.  Price at start == start_price
+• 2.  Price at end == reserve_price (floor)
+• 3.  Price at midpoint is exactly halfway
+• 4.  Price decreases monotonically across the full duration
+• 5.  Price never drops below reserve_price
+• 6.  Price before start_time returns start_price
+• 7.  Price after end_time stays at reserve_price
+• 8.  Flat curve when start_price == reserve_price
+• 9.  Early sell-out clearing price is correct
+• 10. Zero refund when deposit divides evenly by clearing_price
+• 11. Non-zero refund when deposit has a remainder
+• 12. Multi-bidder: token allocation proportional to deposit, solvency held
+• 13. tokens_for_deposit floors on non-multiples
+• 14. Deposit below price_per_token returns 0 tokens
+• 15. cost_for_tokens produces exact total cost
+• 16. Global solvency invariant: Σ(costs + refunds) == Σ(deposits)
+• 17. Price at 6 precise time checkpoints
+• ### contracts/dutch-auction/Cargo.toml
+• - Standalone [workspace] (not part of the main operator workspace)
+• - soroban-sdk = "20.0.0" (consistent with bonding-curve)
+• - testutils feature for optional mock-env testing
+• ### contracts/dutch-auction/Cargo.lock
+• - Pins derive_arbitrary = 1.3.2 (workaround for stellar-xdr 20.1.0 +
+•   derive_arbitrary 1.4.x API breakage on Rust >= 1.81)
+• - Pins zeroize = 1.8.1 (workaround for zeroize 1.9.0 edition2024 issue
+•   on Rust < 1.85)
+• - Ensures reproducible builds across CI toolchain versions
+• ## Test results
+• cargo check: PASS (clean, zero warnings)
+• cargo test:  32/32 PASS
+•   - 15 curve::tests (inline in curve.rs)
+•   - 17 test::* (in test.rs)
+• Closes #219
+✨ feat(contracts): implement Flash Loan Liquidity Pool (#257)
+• ## Summary
+• Implements a production-grade, multi-asset Flash Loan Liquidity Pool
+• Soroban contract resolving issue #257.  Arbitrageurs can borrow any
+• pooled asset uncollateralized for the duration of a single transaction.
+• If the borrowed principal plus fee is not returned before the call-frame
+• exits, the entire transaction reverts — guaranteeing zero capital drain.
+• ## Files changed
+• - contracts/flash-loan/Cargo.toml
+•   • Upgraded soroban-sdk from "22" to "=27.0.6" (aligns with governance-vote
+•     and staking-vault; alloc feature enabled for no_std compatibility)
+•   • Added [workspace] table so this crate is a standalone Soroban workspace
+•     independent from the root Stellar-K8s binary workspace
+•   • Added [profile.release] matching governance-vote (lto, opt-level=z)
+• - contracts/flash-loan/src/lib.rs  (complete rewrite)
+•   • FlashLoanPool contract with #[contract] / #[contractimpl]
+•   • DataKey enum: Admin, Initialized, BaseFeeBps, PoolBalance(Address),
+•     LoanActive(Address), TotalBorrowed(Address), TotalFeesCollected(Address)
+•   • Error catalogue: 11 typed errors covering all failure modes
+•   • Public API: initialize, deposit, withdraw, flash_loan, set_base_fee,
+•     get_pool_balance, get_base_fee_bps, quote_fee, get_total_borrowed,
+•     get_total_fees_collected, is_loan_active
+•   • Multi-asset vault: each token tracked independently in persistent storage
+•   • Pool balance is always reconciled against the real on-chain token balance
+•     (via token::Client::balance) — not just internal bookkeeping
+• - contracts/flash-loan/src/execution.rs  (new)
+•   • execute_flash_loan: 12-step execution engine
+•       1. amount/liquidity validation
+•       2. dynamic fee computation
+•       3. reentrancy guard check (application-level)
+•       4. snapshot on-chain token balance
+•       5. set per-asset LoanActive lock
+•       6. transfer principal to receiver
+•       7. invoke receiver.execute_operation(token, amount, fee, user_data)
+•       8. clear LoanActive lock
+•       9. read post-callback balance
+•      10. assert balance_after >= balance_before + fee  (repayment invariant)
+•      11. update PoolBalance, TotalBorrowed, TotalFeesCollected
+•      12. emit flash_executed event
+•   • compute_fee: dynamic curve
+•       base_fee   = amount × base_fee_bps / 10_000
+•       util_bps   = min(amount × 10_000 / pool_balance, 10_000)
+•       multiplier = 10_000 + 2 × util_bps² / 10_000
+•       fee        = max(base_fee × multiplier / 10_000, 1)
+•     Gives 1.0× at 0 % utilisation, ~1.5× at 50 %, 3.0× at 100 %
+• - contracts/flash-loan/src/test.rs  (new)
+•   • 24 unit tests covering all acceptance criteria:
+•     - test_initialize_sets_state
+•     - test_double_initialize_returns_error
+•     - test_invalid_fee_bps_rejected
+•     - test_deposit_updates_balance
+•     - test_withdraw_updates_balance
+•     - test_withdraw_over_balance_fails
+•     - test_non_admin_withdraw_fails
+•     - test_profitable_flash_loan_succeeds          ← arbitrage succeeds
+•     - test_unprofitable_flash_loan_reverts         ← under-repayment reverts
+•     - test_reentrancy_lock_is_cleared_after_successful_loan
+•     - test_reentrancy_guard_blocks_concurrent_loan_on_same_token  ← blocked
+•     - test_fee_minimum_is_one
+•     - test_fee_scales_with_utilisation
+•     - test_fee_zero_pool_balance_returns_error
+•     - test_fee_negative_amount_returns_error
+•     - test_fee_100pct_utilisation_is_3x_base
+•     - test_quote_fee_matches_actual
+•     - test_uninitialised_pool_rejects_flash_loan
+•     - test_flash_loan_zero_amount_rejected
+•     - test_flash_loan_amount_exceeds_pool_fails
+•     - test_deposit_zero_amount_rejected
+•     - test_set_base_fee_non_admin_rejected
+•     - test_set_base_fee_updates_correctly
+•     - test_set_base_fee_over_10000_rejected
+•   • Mock receivers: ProfitableReceiver (repays principal+fee),
+•     UnprofitableReceiver (repays only principal → triggers RepaymentDeficit),
+•     ReentrantReceiver (attempts reentrant call → blocked)
+• ## Security model
+• Reentrancy: dual-layer protection
+•   1. Application-level: LoanActive per-asset flag in instance storage
+•      checked at the top of execute_flash_loan → returns Error::ReentrantCall
+•   2. Host-level: Soroban's built-in cross-contract re-entry guard
+•      independently prevents re-entry into the same contract frame
+• Balance verification: uses real on-chain balance (token::Client::balance)
+•   not internal accounting — the repayment invariant is:
+•     balance_after >= balance_before + fee
+•   This cannot be spoofed via storage manipulation.
+• Overflow protection: all arithmetic uses checked_add/checked_mul/checked_div.
+• ## Test results
+•   running 24 tests
+•   test result: ok. 24 passed; 0 failed; 0 ignored
+• Closes #257
+✨ feat(contracts): add on-chain options writing (call/put) vault
+• Adds contracts/options-vault: a fully-collateralized Soroban vault that
+• escrows collateral, mints standardized fungible European call/put option
+• tokens, and settles each series deterministically against an oracle after
+• its expiry timestamp.
+• - lib.rs: series registry, fungible option-token ledger, collateral escrow,
+•   oracle settlement and pro-rata claims.
+• - settlement.rs: pure payoff/collateral/oracle-freshness math.
+• - 32 tests pass (cargo test) with a mock oracle and real SAC tokens.
+📝 docs(security): add validator seed sharding protocol, Vault Transit assembly flow, and stdlib shamir-split.py
+✨ feat(contracts): add Merkle airdrop claim distributor
+• Add contracts/merkle-airdrop, a pull-based token distributor that commits an
+• entire (address, allocation) distribution as one SHA-256 Merkle root and lets
+• each recipient pull their allocation exactly once.
+• Paying N recipients directly costs N ledger writes and N transfers, which is why
+• an airdrop to 100k+ accounts cannot be run as a loop. Committing the whole
+• distribution as a root keeps on-chain state and the distributor's cost O(1) in
+• the recipient count, and moves the per-recipient cost onto the claimant's own
+• transaction.
+• The tree format is fixed by src/claim.rs and shared with off-chain tooling:
+• domain-separated tags for leaves and internal nodes (without which a forged
+• proof can prove membership of an intermediate node), sorted child pairs so a
+• proof is a plain Vec<BytesN<32>> with no direction bitmap, and the index and
+• amount hashed into the leaf so a claim slot cannot be reused and a payout cannot
+• be inflated. Claim flags are a bitmap keyed by leaf index, written before the
+• token transfer. Verification is capped at 20 levels, which bounds the worst case
+• of a claim before a campaign launches.
+• Measured with benches/claim_bench.rs: 9993 instructions per proof level, flat
+• from depth 1 to 20, and 580423 instructions for a depth-20 claim (0.15% of the
+• mainnet instruction ceiling). The benchmark asserts that linearity rather than
+• just printing it.
+• Closes #237.
+• 🤖 Generated with Codebuff
+• Co-Authored-By: Codebuff <noreply@codebuff.com>
+📝 ci(contracts): test and build royalty-splitter wasm
+• Contracts live in their own Cargo workspaces under contracts/, so the
+• operator-oriented jobs in ci.yml never compile them.
+• Add a path-filtered workflow that, on changes to contracts/**, runs
+• rustfmt, clippy (deny warnings), the unit + SAC integration tests, and
+• `stellar contract build`, then uploads the resulting Wasm artifact.
+• Dependencies are installed with --locked so the committed Cargo.lock (which
+• pins ed25519-dalek to an API-compatible major) is respected, and stellar-cli
+• is pinned because soroban-sdk 28 requires v25.2.0+ to build the artifact.
+• 🤖 Generated with Codebuff
+• Co-Authored-By: Codebuff <noreply@codebuff.com>
+• Signed-off-by: Akinloluwa20 <112554977+Akinloluwa20@users.noreply.github.com>
+🐛 fix(royalty-splitter): compile and pass tests on soroban-sdk 28
+• The contract failed to build. soroban-env-host declares an unbounded
+• `ed25519-dalek = ">=2.0.0"` requirement, so without a lockfile the resolver
+• picked the API-incompatible 3.x line and the host crate did not compile.
+• - bump soroban-sdk 22 -> 28.0.0 to match the repo's other contracts
+• - commit Cargo.lock pinning ed25519-dalek 2.2.0 for reproducibility
+• - migrate deprecated `env.events().publish` to `#[contractevent]` types
+• - re-export Payee/Allocation/SplitConfig/SplitError at the crate root so the
+•   integration suite can name them
+• - ignore generated `test_snapshots/` build output
+• Verified: `cargo test` (5 unit + 7 integration), `cargo fmt --check`, and
+• `cargo clippy --all-targets --all-features -- -D warnings` all pass.
+• 🤖 Generated with Codebuff
+• Co-Authored-By: Codebuff <noreply@codebuff.com>
+• Signed-off-by: Akinloluwa20 <112554977+Akinloluwa20@users.noreply.github.com>
+✨ feat(contracts): add dust-free royalty splitter Soroban contract
+• Adds contracts/royalty-splitter, a dynamic revenue splitter that routes
+• incoming payments to N payees using fixed-point shares (parts per million)
+• and assigns the rounding remainder to the final payee so no fractional
+• asset dust is ever stranded in the contract.
+• - distribution engine: config validation, i128 high-precision split math,
+•   remainder-to-last-payee, and exact-value conservation
+• - process_payment: atomically pulls the payment in and fans it out through
+•   the standard Soroban token interface, returning the contract to zero
+• - update_splits: unanimous multi-sig reconfiguration; every current payee
+•   must both approve and authorize the call
+• - preview/counters for off-chain visibility
+• - integration tests run against a real Stellar Asset Contract, including
+•   the 33.333/33.333/33.334 split of 10,000 tokens settling to
+•   3333/3333/3334 with zero dust
+• 🤖 Generated with Codebuff
+• Co-Authored-By: Codebuff <noreply@codebuff.com>
+• Signed-off-by: Akinloluwa20 <112554977+Akinloluwa20@users.noreply.github.com>
+✨ feat(contracts): add Synthetix core debt pool with O(1) indexed pricing
+• Implements issue #259: a standalone Soroban contract that tracks synthetic asset debt per minter behind a single global price index.
+• - Add O(1) indexed debt accounting: effective debt is
+•   max(indexed_debt, synth_units * current_price), so a price update
+•   reprices every position without iterating minters.
+• - Enforce 300% collateralization with an upward-only ratcheting ratio.
+• - Add lock/withdraw, mint, burn, admin price updates, flags and pause.
+• - Add localized liquidation that covers only the shortfall, charges a
+•   penalty retained as protocol surplus, and gates the liquidator on the
+•   target post-liquidation ratio instead of an absolute ratio.
+• - Report zero-debt positions as fully collateralized rather than as
+•   shortfalls, and correct share retirement to surrender rather than
+•   mint shares.
+• - Cover the behavior with 40 Soroban tests plus opt-in 10,000 minter
+•   stress tests under tests/stress_debt_pool.rs.
+✨ feat: implement W3C-compliant DID and verifiable credentials registry contract
+📝 docs(security): add RPC rate limiting and DoS mitigation architecture guide (#250)
+• - Add comprehensive architecture guide in docs/security/rpc-dos-mitigation.md detailing multi-layered rate limiting for public Soroban RPC endpoints
+• - Differentiate between read-heavy simulation abuse and write-heavy transaction submission abuse
+• - Provide production-ready NGINX and Envoy Ingress configurations with strict 429 status code responses and RFC 6585 headers
+• - Detail Cloudflare WAF and AWS WAF v2 rules for JSON-RPC payload pattern matching
+• - Document Fail2ban-style dynamic IP blocking using Prometheus alerting, NetworkPolicies, and Operator blocklists
+• - Include vegeta load testing workflow and empirical verification steps
+• - Add NGINX rate limit example manifest in examples/ingress/nginx-rate-limit.yaml
+• - Update security index and mkdocs.yml navigation
+• Closes #250
+✨ feat(contracts): add ERC-4626 auto-compounder yield vault
+• - Add YieldVault Soroban contract with share token (vToken) mechanics
+• - Implement deposit/withdraw with share price = total_assets / total_shares
+• - Add harvest.rs with cross-contract yield claiming and auto-compounding
+• - Protocol fee deducted from yield only (not principal) via basis points
+• - Monotonicity guard reverts harvest if share price would decrease
+• - Mock yield protocol for integration testing
+• - 25 tests including 50-cycle compound accuracy and fee accounting validation
+• Closes: yield-vault auto-compounder (200pts)
+✨ feat(contracts): implement decentralized prediction market orderbook (fixes #263)
+• - Implemented bucketed price-level FIFO orderbook for binary outcome tokens (Yes/No shares).
+• - Implemented crossing order matching engine with MAX_MATCH_ITERATIONS = 50 CPU limit protection.
+• - Implemented complete set minting and automated event resolution with 1 USDC liquidation payouts.
+• - Added comprehensive unit, integration, 500-order stress tests, and CPU profiling documentation.
+• Signed-off-by: codetamer <talalofficial007@gmail.com>
+📝 docs(infrastructure): add cost optimization guide for cloud-hosted soroban nodes (fixes #254)
+• Signed-off-by: codetamer <talalofficial007@gmail.com>
+📝 docs(architecture): add global load balancing and anycast dns configuration (fixes #253)
+• Signed-off-by: codetamer <talalofficial007@gmail.com>
+
+
 ## Chart v2.19.0 (2026-10-02) [minor]
 
 • Merge pull request #350 from moveeswift-uncap/fix/issue-245-enhancement-zero-downtime-egress-traffic
