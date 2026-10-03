@@ -237,4 +237,4 @@ name = "stellar-metrics-proxy"
 path = "src/bin/stellar-metrics-proxy.rs"
 
 [workspace]
-members = ["wasm-plugins", "telemetry"]
+members = ["wasm-plugins", "telemetry", "security/p2p-firewall"]
