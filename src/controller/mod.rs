@@ -62,7 +62,7 @@ pub mod dr;
 pub mod dr_drill;
 [cfg(test)]
 mod dr_test;
-pub(crate) mod finalizers;
+pub mod finalizers;
 pub(crate) mod forensic_snapshot;
 pub(crate) mod health;
 
@@ -157,6 +157,7 @@ pub use feature_flags::{
     watch_feature_flags, FeatureFlags, SharedFeatureFlags, FEATURE_FLAGS_CONFIGMAP,
 };
 pub use finalizers::STELLAR_NODE_FINALIZER;
+pub use finalizers::cleanup::run_finalizer_cleanup_controller;
 pub use gitops_upgrade::{
     GitOpsEngine, GitOpsUpgradeController, GitOpsUpgradePlan, ProtocolUpgradeStep,
     ProtocolUpgradeTimeline,
